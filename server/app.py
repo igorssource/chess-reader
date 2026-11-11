@@ -40,6 +40,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def restore_original_path(request: Request, call_next):
+    """On Vercel every /api/* request is rewritten to /api/index (see vercel.json),
+    which passes the original path as ?__path=. Put it back so the routes match."""
+    orig = request.query_params.get("__path")
+    if orig is not None and not request.url.path.startswith("/api/") or (
+            orig is not None and request.url.path in ("/api/index", "/api/index.py", "/api")):
+        path = "/api/" + orig.lstrip("/")
+        request.scope["path"] = path
+        request.scope["raw_path"] = path.encode()
+    return await call_next(request)
+
+
 def _err(status: int, code: str, message: str):
     return JSONResponse({"error": code, "message": message}, status_code=status)
 
@@ -147,3 +160,9 @@ def get_stats(request: Request, token: str = ""):
     out["daily_budget_eur"] = s.daily_budget_eur
     out["max_calls_per_game"] = s.max_calls_per_game
     return out
+
+
+@app.api_route("/{rest:path}", methods=["GET", "POST"], include_in_schema=False)
+def not_found(rest: str, request: Request):
+    # Shows which path the server actually received (helps to debug routing on the host).
+    return _err(404, "not_found", f"no route for /{rest}")

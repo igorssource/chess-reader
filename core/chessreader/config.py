@@ -28,7 +28,7 @@ MODEL_PRICES_USD = {
 class Settings:
     notation_language: str = field(default_factory=lambda: _env("NOTATION_LANGUAGE", "de"))
     model_provider: str = field(default_factory=lambda: _env("MODEL_PROVIDER", "anthropic"))
-    model_name: str = field(default_factory=lambda: _env("MODEL_NAME", "claude-opus-5-5"))
+    model_name: str = field(default_factory=lambda: _env("MODEL_NAME", "claude-sonnet-5-5"))
     model_effort: str = field(default_factory=lambda: _env("MODEL_EFFORT", "medium"))
     max_calls_per_game: int = field(default_factory=lambda: _env("MAX_CALLS_PER_GAME", 10, int))
     daily_budget_eur: float = field(default_factory=lambda: _env("DAILY_BUDGET_EUR", 1.0, float))

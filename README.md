@@ -19,7 +19,7 @@
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Ключ API (обязателен). |
-| `MODEL_NAME` | `claude-opus-5-5` | Модель. |
+| `MODEL_NAME` | `claude-sonnet-5-5` | Модель. |
 | `MODEL_EFFORT` | `medium` | Глубина размышления модели (`low`…`max`). |
 | `MAX_CALLS_PER_GAME` | `10` | Потолок обращений к модели на партию. |
 | `DAILY_BUDGET_EUR` | `1.0` | Дневной лимит расходов в евро. |

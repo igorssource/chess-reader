@@ -67,7 +67,7 @@ def health():
 
 
 @app.post("/api/process")
-async def process(files: list[UploadFile] = File(...), language: str = Form(None)):
+async def process(request: Request, files: list[UploadFile] = File(...), language: str = Form(None)):
     s = Settings()
     if language:
         s.notation_language = language
@@ -84,9 +84,13 @@ async def process(files: list[UploadFile] = File(...), language: str = Form(None
     kv = get_kv()
     budget = Budget(kv, s)
     game_id = new_game_id()
-    photo_refs = []
+    photo_refs, photo_errors = [], []
     if s.store_photos:
-        photo_refs = [store_photo(img.data, img.media_type, game_id, i) for i, img in enumerate(images)]
+        for i, img in enumerate(images):
+            ref, err = store_photo(img.data, img.media_type, game_id, i, request.headers)
+            photo_refs.append(ref)
+            if err:
+                photo_errors.append(err)
 
     t0 = time.time()
     try:
@@ -103,6 +107,7 @@ async def process(files: list[UploadFile] = File(...), language: str = Form(None
         "cost_eur": round(outcome.cost_eur, 5), "stopped": outcome.stopped_because,
         "plies": len(r.plies), "doubtful": sum(p.status == "doubtful" for p in r.plies),
         "fixed": sum(p.status == "fixed" for p in r.plies), "photos": [p for p in photo_refs if p],
+        **({"photo_error": photo_errors[0]} if photo_errors else {}),
     })
     return {
         "game_id": game_id,

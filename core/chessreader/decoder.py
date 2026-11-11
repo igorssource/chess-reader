@@ -101,8 +101,16 @@ def _candidates(board: chess.Board, tok: RawPly, lang, s: DecoderSettings):
                 put(mv, s.alternative_cost * rank, "alternative")
     written = notation.clean(tok.text).rstrip("+#")
     if written:
-        for mv in board.legal_moves:
-            d = min(similarity.distance(written, notation.render_plain(board, mv, lang)),
+        legal = list(board.legal_moves)
+        targets: dict = {}
+        for mv in legal:
+            k = (board.piece_type_at(mv.from_square), mv.to_square)
+            targets[k] = targets.get(k, 0) + 1
+        for mv in legal:
+            k = (board.piece_type_at(mv.from_square), mv.to_square)
+            short = (notation.render(board, mv, lang).rstrip("+#") if targets[k] > 1
+                     else notation.render_plain(board, mv, lang))   # keep "Tad8" vs "Tfd8"
+            d = min(similarity.distance(written, short),
                     similarity.distance(written, notation.render_long(board, mv, lang)))
             if 0 < d <= s.max_similarity:
                 put(mv, s.similar_base + d, "similar")

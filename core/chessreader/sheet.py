@@ -5,7 +5,25 @@ and the opponent's sheet without changing this structure.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+
+# Cells that end the game instead of holding a move ("Remis", "1:0", "aufgegeben" ...)
+_RESULT = re.compile(r"^(rem\w*|remis|draw|½.*|1/2.*|1\s*[:-]\s*0|0\s*[:-]\s*1|aufg\w*|resign\w*|=)\.?$", re.I)
+
+
+def result_of(text: str) -> str | None:
+    t = (text or "").strip()
+    if not _RESULT.match(t):
+        return None
+    tl = t.lower().replace(" ", "")
+    if tl.startswith(("rem", "draw", "½", "1/2", "=")):
+        return "1/2-1/2"
+    if tl.replace(":", "-") == "1-0":
+        return "1-0"
+    if tl.replace(":", "-") == "0-1":
+        return "0-1"
+    return "*"           # "aufgegeben": who resigned is not clear from the cell alone
 
 
 @dataclass
@@ -56,6 +74,11 @@ def flatten(reading: GameReading) -> list[RawPly]:
         if sheet.role == "opponent":
             continue   # merging the opponent's sheet comes in a later stage
         for p in sheet.plies:
+            res = result_of(p.text) if p.kind == "move" else None
+            if res is not None:
+                if res != "*" and reading.header.result in ("*", "", None):
+                    reading.header.result = res
+                continue           # a result written into a move cell is not a move
             if p.number is not None and last_number is not None:
                 expected = _index(last_number, last_color) + 1
                 got = _index(p.number, p.color or "w")

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Partieformular-Leser</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1 data-t="title">Partieformular → PGN</h1>
+  <div class="lang">
+    <button data-lang="de">DE</button><button data-lang="ru">RU</button>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="step-upload">
+    <p data-t="intro"></p>
+    <div class="notice" data-t="privacy"></div>
+    <div class="buttons">
+      <label class="btn primary"><span data-t="camera"></span>
+        <input type="file" accept="image/*" capture="environment" id="camera" hidden></label>
+      <label class="btn"><span data-t="upload"></span>
+        <input type="file" accept="image/*" id="file" hidden></label>
+    </div>
+    <p class="hint" data-t="tips"></p>
+  </section>
+
+  <section class="card" id="step-busy" hidden>
+    <img id="preview-busy" class="preview" alt="">
+    <p class="busy"><span class="spinner"></span><span data-t="busy"></span></p>
+  </section>
+
+  <section class="card error" id="step-error" hidden>
+    <p id="error-text"></p>
+    <button class="btn" id="again-error" data-t="again"></button>
+  </section>
+
+  <section id="step-result" hidden>
+    <div class="card">
+      <h2 data-t="header"></h2>
+      <div class="grid">
+        <label><span data-t="white"></span><input id="h-white"></label>
+        <label><span data-t="black"></span><input id="h-black"></label>
+        <label><span data-t="event"></span><input id="h-event"></label>
+        <label><span data-t="site"></span><input id="h-site"></label>
+        <label><span data-t="date"></span><input id="h-date" placeholder="2026.11.11"></label>
+        <label><span data-t="round"></span><input id="h-round"></label>
+        <label><span data-t="result"></span>
+          <select id="h-result"><option>*</option><option>1-0</option><option>0-1</option><option>1/2-1/2</option></select></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 data-t="moves"></h2>
+      <p class="legend">
+        <span class="m ok" data-t="l-ok"></span>
+        <span class="m fixed" data-t="l-fixed"></span>
+        <span class="m doubtful" data-t="l-doubtful"></span>
+      </p>
+      <div class="split">
+        <img id="preview" class="preview" alt="">
+        <table class="moves"><tbody id="moves"></tbody></table>
+      </div>
+      <div id="detail" class="detail" hidden></div>
+      <p id="summary" class="hint"></p>
+    </div>
+
+    <div class="card">
+      <div class="buttons">
+        <button class="btn primary" id="download" data-t="download"></button>
+        <button class="btn" id="copy" data-t="copy"></button>
+        <button class="btn" id="again" data-t="again"></button>
+      </div>
+      <pre id="pgn" class="pgn"></pre>
+    </div>
+  </section>
+</main>
+<footer data-t="footer"></footer>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

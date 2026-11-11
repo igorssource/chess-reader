@@ -169,6 +169,8 @@ def matches(board: chess.Board, p: ParsedMove) -> list[chess.Move]:
 def render(board: chess.Board, mv: chess.Move, lang: Language) -> str:
     """Short algebraic notation in the given language (e.g. German 'Sf3')."""
     san = board.san(mv)
+    if lang.code != "en":
+        san = san.replace("O", "0")       # German/Russian sheets write castling with zeros
     out = []
     for ch in san:
         if ch in INTERNAL:

@@ -1,0 +1,5 @@
+chess==1.11.2
+anthropic==2.8.0
+pydantic==2.14.3
+fastapi==0.162.4
+python-multipart

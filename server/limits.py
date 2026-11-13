@@ -46,7 +46,8 @@ def _summary(games: list) -> dict:
     return {"games": len(games), "cost_eur": round(sum(cost), 4),
             "avg_cost_eur": round(sum(cost) / len(cost), 4),
             "avg_calls": round(sum(calls) / len(calls), 2),
-            "stopped_by_cap": sum(1 for g in games if g.get("stopped") == "call_cap")}
+            "stopped_by_cap": sum(1 for g in games if g.get("stopped") == "call_cap"),
+            "escalated_to_strong_model": sum(1 for g in games if g.get("escalated"))}
 
 
 def _by_model(games: list) -> dict:

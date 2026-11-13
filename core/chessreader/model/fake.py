@@ -15,12 +15,12 @@ class FakeProvider(ModelProvider):
 
     def read_sheet(self, images):
         self.calls += 1
-        return self.reading or demo_reading(), ModelCall(model="fake", cost_eur=0.01, purpose="read")
+        return self.reading or demo_reading(), ModelCall(model=getattr(self.settings, "model_name", "fake"), cost_eur=0.01, purpose="read")
 
     def recheck(self, images, move_number, color, written, fen, legal_moves, previous_moves):
         self.calls += 1
         cands = [c for c in self.recheck_answers.get((move_number, color), []) if c in legal_moves]
-        return RecheckAnswer(candidates=cands), ModelCall(model="fake", cost_eur=0.01, purpose="recheck")
+        return RecheckAnswer(candidates=cands), ModelCall(model=getattr(self.settings, "model_name", "fake"), cost_eur=0.01, purpose="recheck")
 
 
 def demo_reading():

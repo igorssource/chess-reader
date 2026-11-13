@@ -256,7 +256,7 @@
     el.hidden = !a;
     if (!a) return;
     let txt = `Модель: ${a.model} · вызовов: ${state.model_calls} · стоимость: ${(a.cost_eur * 100).toFixed(2)} ct`;
-    if (a.models_used && a.models_used.length) txt += ` · фактически: ${a.models_used.join(", ")}`;
+    if (a.escalated) txt += " · Haiku сомневалась, перечитано через Sonnet";
     if (a.accuracy) txt += ` · совпадение с эталоном ${a.accuracy.ref}: ${a.accuracy.match_until} из ${a.accuracy.ref_plies} полуходов (${a.accuracy.match_pct}%)`;
     el.textContent = txt;
   }

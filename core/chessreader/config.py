@@ -34,6 +34,14 @@ class Settings:
     daily_budget_eur: float = field(default_factory=lambda: _env("DAILY_BUDGET_EUR", 3.0, float))  # 2026-11-13 only: +1 € for Igor today; set back to 1.0 tomorrow
     usd_to_eur: float = field(default_factory=lambda: _env("USD_TO_EUR", 0.95, float))
     store_photos: bool = field(default_factory=lambda: _env("STORE_PHOTOS", True, _bool))
+    # Cascade: read with the first model; if too many moves are unsure, re-read with the next.
+    # Empty CASCADE_MODELS = always use MODEL_NAME only.
+    cascade_models: list = field(default_factory=lambda: [m.strip() for m in _env(
+        "CASCADE_MODELS", "claude-haiku-5-5,claude-sonnet-5-5").split(",") if m.strip()])
+    cascade_max_problem_share: float = field(default_factory=lambda: _env("CASCADE_MAX_PROBLEM_SHARE", 0.10, float))
+    cascade_max_doubtful: int = field(default_factory=lambda: _env("CASCADE_MAX_DOUBTFUL", 3, int))
+    cascade_min_plies: int = field(default_factory=lambda: _env("CASCADE_MIN_PLIES", 10, int))
+    cascade_cheap_max_calls: int = field(default_factory=lambda: _env("CASCADE_CHEAP_MAX_CALLS", 3, int))
     pgn_comments_language: str = field(default_factory=lambda: _env("PGN_COMMENTS_LANGUAGE", "de"))
 
     def price_eur(self, input_tokens: int, output_tokens: int, model: str | None = None) -> float:

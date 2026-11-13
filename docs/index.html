@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Partieformular-Leser</title>
-<link rel="stylesheet" href="style.css?v=20261113d">
+<link rel="stylesheet" href="style.css?v=20261113e">
 </head>
 <body>
 <header class="top">
@@ -53,9 +53,9 @@
       <b>Тест-режим (админ)</b>
       <label>Модель
         <select id="admin-model">
-          <option value="">по умолчанию (как у всех)</option>
-          <option value="claude-haiku-5-5">Haiku 5.5 (дешёвая)</option>
-          <option value="claude-sonnet-5-5">Sonnet 5.5 (текущая)</option>
+          <option value="">по умолчанию: Haiku, при сомнениях Sonnet</option>
+          <option value="claude-haiku-5-5">только Haiku 5.5 (дешёвая)</option>
+          <option value="claude-sonnet-5-5">только Sonnet 5.5</option>
           <option value="claude-opus-5-5">Opus 5.5 (дорогая)</option>
         </select></label>
       <label>Эталон для сравнения
@@ -133,8 +133,8 @@
   </section>
 </main>
 <footer data-t="footer"></footer>
-<script src="config.js?v=20261113d"></script>
+<script src="config.js?v=20261113e"></script>
 <!-- Bump ?v= on every change of css/js: phones cache these files and would mix a new page with old code. -->
-<script src="app.js?v=20261113d"></script>
+<script src="app.js?v=20261113e"></script>
 </body>
 </html>

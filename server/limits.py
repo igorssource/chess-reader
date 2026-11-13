@@ -38,7 +38,25 @@ def log_game(kv, entry: dict, keep: int = 2000):
     kv.push_log(LOG_KEY, entry, keep)
 
 
-def stats(kv, n: int = 500) -> dict:
+def _summary(games: list) -> dict:
+    if not games:
+        return {"games": 0}
+    calls = [g.get("calls", 0) for g in games]
+    cost = [g.get("cost_eur", 0.0) for g in games]
+    return {"games": len(games), "cost_eur": round(sum(cost), 4),
+            "avg_cost_eur": round(sum(cost) / len(cost), 4),
+            "avg_calls": round(sum(calls) / len(calls), 2),
+            "stopped_by_cap": sum(1 for g in games if g.get("stopped") == "call_cap")}
+
+
+def _by_model(games: list) -> dict:
+    groups: dict = {}
+    for g in games:
+        groups.setdefault(g.get("model", "?"), []).append(g)
+    return {m: _summary(gs) for m, gs in sorted(groups.items())}
+
+
+def stats(kv, n: int = 500, today_prefix: int | None = None) -> dict:
     games = kv.read_log(LOG_KEY, n)
     if not games:
         return {"games": 0}
@@ -47,7 +65,7 @@ def stats(kv, n: int = 500) -> dict:
     hist: dict = {}
     for c in calls:
         hist[c] = hist.get(c, 0) + 1
-    return {
+    out = {
         "games": len(games),
         "avg_calls_per_game": round(sum(calls) / len(calls), 2),
         "max_calls_per_game": max(calls),
@@ -55,5 +73,16 @@ def stats(kv, n: int = 500) -> dict:
         "avg_cost_eur": round(sum(cost) / len(cost), 4),
         "stopped_by_cap": sum(1 for g in games if g.get("stopped") == "call_cap"),
         "spent_today_eur": None,
-        "recent": games[:20],
+        "by_model": _by_model(games),
     }
+    if today_prefix is not None:
+        today_games = [g for g in games if g.get("ts", 0) >= today_prefix]
+        out["today"] = {**_summary(today_games), "by_model": _by_model(today_games)}
+    # admin comparison runs: one short line per sheet, newest first
+    out["ref_runs"] = [
+        {"ref": g["ref"], "model": g.get("model"), "match": f'{g["match_until"]}/{g["ref_plies"]}',
+         "match_pct": g.get("match_pct"), "calls": g.get("calls"), "cost_eur": g.get("cost_eur"),
+         "doubtful": g.get("doubtful"), "fixed": g.get("fixed"), "seconds": g.get("seconds")}
+        for g in games if g.get("ref")]
+    out["recent"] = games[:20]
+    return out

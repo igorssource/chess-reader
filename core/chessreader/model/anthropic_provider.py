@@ -51,6 +51,10 @@ class AnthropicProvider(ModelProvider):
 
     def _call(self, system: str, content: list[dict], schema: dict, purpose: str, max_tokens: int):
         s = self.settings
+        # If the model declines, the API retries on a suitable fallback model.
+        # Haiku has no server-side fallback, so the option is not sent for it.
+        fallback = {} if "haiku" in s.model_name else {
+            "betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
         try:
             response = self.client.beta.messages.create(
                 model=s.model_name,
@@ -59,9 +63,7 @@ class AnthropicProvider(ModelProvider):
                 messages=[{"role": "user", "content": content}],
                 output_config={"effort": s.model_effort,
                                "format": {"type": "json_schema", "schema": schema}},
-                # if the model declines, the API retries on a suitable fallback model
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
+                **fallback,
             )
         except anthropic.AuthenticationError as e:
             raise ModelError("model API key is missing or invalid") from e

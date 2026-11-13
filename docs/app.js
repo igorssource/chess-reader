@@ -203,6 +203,12 @@
     show("step-busy");
     const form = new FormData();
     photos.forEach((p, i) => form.append("files", p.blob, `sheet-${i + 1}.jpg`));
+    const adminToken = localGet("admin_token");
+    if (adminToken) {
+      form.append("admin", adminToken);
+      if ($("admin-model").value) form.append("model", $("admin-model").value);
+      if ($("admin-ref").value) form.append("ref", $("admin-ref").value);
+    }
     let resp, data;
     try {
       resp = await fetch(API + "/api/process", { method: "POST", body: form });
@@ -223,13 +229,43 @@
       skipped_cells: data.skipped_cells || [], photo: photos[0].blob });
     fillHeader(data.header);
     renderResult();
+    showAdminResult(data.admin);
     show("step-result");
+  }
+
+  // ---- Hidden admin test mode: choose the model and a reference game per upload.
+  function initAdmin() {
+    const m = location.hash.match(/admin=([^&]+)/);
+    if (m) {
+      localSet("admin_token", decodeURIComponent(m[1]));
+      history.replaceState(null, "", location.pathname + location.search);   // token out of the address bar
+    }
+    const on = !!localGet("admin_token");
+    $("admin").hidden = !on;
+    if (!on) return;
+    $("admin-model").value = localGet("admin_model") || "";
+    $("admin-model").onchange = () => localSet("admin_model", $("admin-model").value);
+    $("admin-off").onclick = () => {
+      try { localStorage.removeItem("admin_token"); } catch (e) { /* ignore */ }
+      $("admin").hidden = true;
+    };
+  }
+
+  function showAdminResult(a) {
+    const el = $("admin-result");
+    el.hidden = !a;
+    if (!a) return;
+    let txt = `Модель: ${a.model} · вызовов: ${state.model_calls} · стоимость: ${(a.cost_eur * 100).toFixed(2)} ct`;
+    if (a.models_used && a.models_used.length) txt += ` · фактически: ${a.models_used.join(", ")}`;
+    if (a.accuracy) txt += ` · совпадение с эталоном ${a.accuracy.ref}: ${a.accuracy.match_until} из ${a.accuracy.ref_plies} полуходов (${a.accuracy.match_pct}%)`;
+    el.textContent = txt;
   }
 
   async function openGame(id) {
     let g;
     try { g = await DB.get(id); } catch (e) { return; }
     if (!g) return;
+    $("admin-result").hidden = true;
     currentId = g.id;
     state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells };
     if (resultPhotoUrl) URL.revokeObjectURL(resultPhotoUrl);
@@ -410,7 +446,7 @@
     }
   };
   // New sheet: forget everything. After an error: keep the photo so it can be sent again.
-  $("again").onclick = () => { state = null; currentId = null; clearPhotos(); renderSelected(); renderHistory(); show("step-upload"); };
+  $("again").onclick = () => { $("admin-result").hidden = true; state = null; currentId = null; clearPhotos(); renderSelected(); renderHistory(); show("step-upload"); };
   $("again-error").onclick = () => { state = null; renderSelected(); show("step-upload"); };
   $("camera").onchange = (e) => addPhoto(e.target.files[0]);
   $("file").onchange = (e) => addPhoto(e.target.files[0]);
@@ -418,6 +454,7 @@
   $("replace").onclick = () => { clearPhotos(); renderSelected(); };
   document.querySelectorAll(".lang button").forEach((b) => (b.onclick = () => { lang = b.dataset.lang; localSet("lang", lang); applyLang(); }));
   document.querySelectorAll(".grid input, .grid select").forEach((el) => el.addEventListener("input", saveHeaderSoon));
+  initAdmin();
   applyLang();
   show("step-upload");
 })();

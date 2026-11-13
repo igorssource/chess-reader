@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from chessreader.config import Settings
+from chessreader.config import MODEL_PRICES_USD, Settings
 from chessreader.decoder import DecodedPly, DecodeResult
 from chessreader.model import get_provider
 from chessreader.model.anthropic_provider import ModelError
@@ -28,6 +28,7 @@ from chessreader.sheet import Header
 from .kv import get_kv
 from .limits import Budget, log_game, stats
 from .photos import new_game_id, store_photo
+from .references import REFERENCES, compare
 
 MAX_IMAGES = 2              # stage 1 uses one; room for a continuation sheet
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
@@ -67,10 +68,22 @@ def health():
 
 
 @app.post("/api/process")
-async def process(request: Request, files: list[UploadFile] = File(...), language: str = Form(None)):
+async def process(request: Request, files: list[UploadFile] = File(...), language: str = Form(None),
+                  admin: str = Form(None), model: str = Form(None), ref: str = Form(None)):
     s = Settings()
     if language:
         s.notation_language = language
+    # Admin test mode (hidden in the page): choose the model per upload and compare
+    # the result with a reference game. Needs ADMIN_TOKEN, so normal users can't use it.
+    is_admin = bool(admin) and admin == os.environ.get("ADMIN_TOKEN")
+    if (model or ref) and not is_admin:
+        return _err(403, "forbidden", "admin token required")
+    if model:
+        if model not in MODEL_PRICES_USD:
+            return _err(400, "bad_request", f"unknown model {model}")
+        s.model_name = model
+    if ref and ref not in REFERENCES:
+        return _err(400, "bad_request", f"unknown reference {ref}")
     if not 1 <= len(files) <= MAX_IMAGES:
         return _err(400, "bad_request", f"send 1 to {MAX_IMAGES} photos")
     images = []
@@ -87,8 +100,8 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
     photo_refs, photo_errors = [], []
     if s.store_photos:
         for i, img in enumerate(images):
-            ref, err = store_photo(img.data, img.media_type, game_id, i, request.headers)
-            photo_refs.append(ref)
+            pref, err = store_photo(img.data, img.media_type, game_id, i, request.headers)
+            photo_refs.append(pref)
             if err:
                 photo_errors.append(err)
 
@@ -101,6 +114,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         return _err(502, "model_error", str(e))
 
     r = outcome.result
+    accuracy = compare(ref, [p.san for p in r.plies]) if ref else None
     log_game(kv, {
         "id": game_id, "ts": int(t0), "seconds": round(time.time() - t0, 1),
         "model": s.model_name, "calls": len(outcome.calls),
@@ -108,6 +122,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         "plies": len(r.plies), "doubtful": sum(p.status == "doubtful" for p in r.plies),
         "fixed": sum(p.status == "fixed" for p in r.plies), "photos": [p for p in photo_refs if p],
         **({"photo_error": photo_errors[0]} if photo_errors else {}),
+        **(accuracy or {}), **({"admin": True} if is_admin else {}),
     })
     return {
         "game_id": game_id,
@@ -118,6 +133,9 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         "model_calls": len(outcome.calls),
         "stopped_because": outcome.stopped_because,
         "language": s.notation_language,
+        **({"admin": {"model": s.model_name, "cost_eur": round(outcome.cost_eur, 4),
+                      "models_used": sorted({c.model for c in outcome.calls}),
+                      "accuracy": accuracy}} if is_admin else {}),
     }
 
 
@@ -160,11 +178,18 @@ def get_stats(request: Request, token: str = ""):
         return _err(403, "forbidden", "admin token required")
     kv = get_kv()
     s = Settings()
-    out = stats(kv)
+    out = stats(kv, today_prefix=_today_start())
     out["spent_today_eur"] = round(Budget(kv, s).spent(), 4)
     out["daily_budget_eur"] = s.daily_budget_eur
     out["max_calls_per_game"] = s.max_calls_per_game
     return out
+
+
+def _today_start() -> int:
+    import datetime as dt
+    from .limits import TZ
+    now = dt.datetime.now(TZ)
+    return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 
 
 @app.api_route("/{rest:path}", methods=["GET", "POST"], include_in_schema=False)

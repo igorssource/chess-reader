@@ -35,6 +35,8 @@ class RawPly:
     confidence: float = 1.0            # model's confidence 0..1
     alternatives: list[str] = field(default_factory=list)
     kind: str = "move"                 # move | empty | illegible | gap (synthetic, numbering jump)
+    pinned: bool = False               # a person chose this move in the review: the decoder must use it
+    orig: str | None = None            # for a pinned cell: what the model had read there
 
 
 @dataclass
@@ -42,6 +44,9 @@ class Sheet:
     plies: list[RawPly] = field(default_factory=list)
     role: str = "main"                 # main | continuation | opponent (later stages)
     language: str = "de"
+    # Where the move cells are on the photo (for zooming in during the review):
+    # [{"first_move", "last_move", "left", "top", "right", "bottom"}], coordinates 0..1000.
+    layout: list = field(default_factory=list)
 
 
 @dataclass

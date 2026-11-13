@@ -31,11 +31,22 @@ class CellOut(_Strict):
     kind: Literal["move", "empty", "illegible"]
 
 
+class MoveBlockOut(_Strict):
+    """One block of move rows on the photo (sheets have 1-3 blocks side by side)."""
+    first_move: int
+    last_move: int
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+
 class SheetOut(_Strict):
     notation_language: str
     header: HeaderOut
     cells: list[CellOut]
     remarks: str
+    move_blocks: list[MoveBlockOut]
 
 
 class RecheckOut(_Strict):
@@ -52,7 +63,10 @@ def to_reading(out: SheetOut) -> GameReading:
     plies = [RawPly(text=c.text, number=c.number, color=c.color,
                     confidence=max(0.0, min(1.0, c.confidence)),
                     alternatives=list(c.alternatives), kind=c.kind) for c in out.cells]
-    return GameReading(header=header, sheets=[Sheet(plies=plies, language=out.notation_language or "de")])
+    layout = [b.model_dump() for b in out.move_blocks
+              if b.last_move >= b.first_move and b.right > b.left and b.bottom > b.top]
+    return GameReading(header=header, sheets=[Sheet(plies=plies, language=out.notation_language or "de",
+                                                    layout=layout)])
 
 
 def _pgn_result(r: str) -> str:

@@ -28,6 +28,7 @@ class GameOutcome:
     calls: list[ModelCall] = field(default_factory=list)
     stopped_because: str = ""          # "", "call_cap", "budget"
     escalated: bool = False            # cascade: the cheap result was unsure, strong model re-read
+    tokens: list = field(default_factory=list)   # the cells that were decoded (kept for the review)
 
     @property
     def cost_eur(self) -> float:
@@ -81,7 +82,7 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
         result = decode(tokens, lang)
 
     pgn = build_pgn(reading.header, result, settings.pgn_comments_language)
-    return GameOutcome(reading, result, pgn, calls, stopped)
+    return GameOutcome(reading, result, pgn, calls, stopped, tokens=tokens)
 
 
 def _next_doubtful(result: DecodeResult, tokens, asked):

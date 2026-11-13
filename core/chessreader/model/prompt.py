@@ -37,6 +37,13 @@ Rules:
 6. "notation_language": the language code of the notation you see ("{lang_code}" expected).
 7. "remarks": one short sentence about anything unusual (several sheets, second page, very
    poor photo), else "".
+8. "move_blocks": where the move rows are on the photo, so the app can zoom in on one cell.
+   Sheets print the moves in blocks (often 1-30 on the left, 31-60 on the right). For each
+   block give the first and last move number printed in it and its rectangle in coordinates
+   from 0 to 1000 relative to the whole image (left/right: share of the width, top/bottom:
+   share of the height). The rectangle covers only the White and Black writing columns (not
+   the printed move numbers), from the top edge of the first move row to the bottom edge of
+   the last move row. Rough values are fine.
 """
 
 

@@ -2,6 +2,7 @@
 
 POST /api/process   photo(s) of one game -> moves with marks + PGN
 POST /api/pgn       header + moves -> PGN (after the user edits; no model call)
+POST /api/redecode  a person fixed one move -> rest of the game decoded again (no model call)
 GET  /api/health    settings visible to the page (no secrets)
 GET  /api/stats     usage statistics (needs ADMIN_TOKEN)
 """
@@ -25,6 +26,7 @@ from chessreader.model.base import Image
 from chessreader.openings import detect as detect_opening
 from chessreader.pgn_export import build_pgn
 from chessreader.pipeline import BudgetExhausted, process_cascade, process_game
+from chessreader.review import ReviewError, cell_from_dict, cells_from_plies, cells_to_dicts, redecode
 from chessreader.sheet import Header
 
 from .kv import get_kv
@@ -145,6 +147,9 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         "skipped_cells": [outcome_cell(outcome, i) for i in r.skipped_tokens],
         "pgn": outcome.pgn,
         "opening": _opening([p.san for p in r.plies]),
+        # kept by the page with the game, so a fixed move can be decoded again without the model
+        "cells": cells_to_dicts(outcome.tokens),
+        "layout": outcome.reading.sheets[0].layout if outcome.reading.sheets else [],
         "model_calls": len(outcome.calls),
         "stopped_because": outcome.stopped_because,
         "language": s.notation_language,
@@ -185,6 +190,42 @@ def pgn(req: PgnRequest):
     header = Header(**{k: v for k, v in req.header.items() if k in Header.__dataclass_fields__})
     return {"pgn": build_pgn(header, DecodeResult(plies, [], 0, board.fen()), s.pgn_comments_language),
             "opening": _opening([p.san for p in plies])}
+
+
+class RedecodeRequest(BaseModel):
+    header: dict
+    plies: list[dict]          # current moves as the page has them
+    cells: list[dict] | None = None   # cells read from the photo (None for older saved games)
+    ply: int                   # half-move index the person fixed (0 = White's 1st move)
+    san: str                   # the chosen move (English SAN)
+    language: str = "de"
+
+
+@app.post("/api/redecode")
+def redecode_route(req: RedecodeRequest):
+    s = Settings()
+    if req.cells is None:
+        cells, plies = cells_from_plies(req.plies)
+    else:
+        cells, plies = [cell_from_dict(c) for c in req.cells], req.plies
+    try:
+        new_plies, new_cells, skipped = redecode(cells, plies, req.ply, req.san, req.language or s.notation_language)
+    except ReviewError as e:
+        return _err(400, "bad_request", str(e))
+    board = chess.Board()
+    decoded = []
+    for k, m in enumerate(new_plies):
+        mv = board.parse_san(m["san"])
+        decoded.append(DecodedPly(ply=k, san=m["san"], written=m.get("written", ""), local=m.get("local", ""),
+                                  status=m.get("status", "ok"), reason=m.get("reason", "exact"),
+                                  alternatives=m.get("alternatives", [])))
+        board.push(mv)
+    header = Header(**{k: v for k, v in req.header.items() if k in Header.__dataclass_fields__})
+    return {"plies": new_plies, "cells": cells_to_dicts(new_cells),
+            "skipped_cells": [{"index": i, "text": new_cells[i].text, "number": new_cells[i].number,
+                               "color": new_cells[i].color} for i in skipped],
+            "pgn": build_pgn(header, DecodeResult(decoded, skipped, 0, board.fen()), s.pgn_comments_language),
+            "opening": _opening([m["san"] for m in new_plies])}
 
 
 def _opening(sans):

@@ -46,7 +46,7 @@ class Step:
     move: chess.Move
     token: int | None                 # index of the written cell, None = inserted move
     cost: float
-    kind: str                         # exact | alternative | similar | missing | fill
+    kind: str                         # exact | alternative | similar | missing | fill | user
     ambiguous_written: bool = False   # written move fitted several legal moves
 
 
@@ -224,6 +224,13 @@ def _expand(st: _State, tok: RawPly, i: int, trailing: bool, lang, s: DecoderSet
         yield skip(sk)
         return
 
+    if tok.pinned:
+        # a person chose this move: only that move, no skipping, nothing inserted before it
+        parsed = notation.parse(tok.text, lang)
+        for mv in (notation.matches(board, parsed) if parsed else [])[:1]:
+            yield push(mv, 0.0, "user")
+        return
+
     ck = _key(board, i)
     cands = cache.get(ck)
     if cands is None:
@@ -273,10 +280,12 @@ def _build_result(finished, tokens, lang, s, start) -> DecodeResult:
             status = "fixed"
         if step.kind in ("missing", "fill"):
             status = "doubtful"     # a guessed move is always shown to a person
+        if step.kind == "user":
+            status, alt_moves = "ok", []
         plies.append(DecodedPly(
             ply=k,
             san=board.san(step.move),
-            written=tok.text if tok else "",
+            written=(tok.orig or "" if tok.pinned else tok.text) if tok else "",
             local=notation.render(board, step.move, lang),
             status=status,
             reason=step.kind,

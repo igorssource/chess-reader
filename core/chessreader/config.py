@@ -42,6 +42,8 @@ class Settings:
     cascade_max_doubtful: int = field(default_factory=lambda: _env("CASCADE_MAX_DOUBTFUL", 3, int))
     cascade_min_plies: int = field(default_factory=lambda: _env("CASCADE_MIN_PLIES", 10, int))
     cascade_cheap_max_calls: int = field(default_factory=lambda: _env("CASCADE_CHEAP_MAX_CALLS", 3, int))
+    # Re-read a doubtful move on a zoomed crop of its cell (from the full-size photo).
+    recheck_crop: bool = field(default_factory=lambda: _env("RECHECK_CROP", True, _bool))
     pgn_comments_language: str = field(default_factory=lambda: _env("PGN_COMMENTS_LANGUAGE", "de"))
 
     def price_eur(self, input_tokens: int, output_tokens: int, model: str | None = None) -> float:

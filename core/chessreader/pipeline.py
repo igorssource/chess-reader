@@ -17,7 +17,9 @@ from .config import Settings
 from .decoder import DecodeResult, decode
 from .model.base import Image, ModelCall, ModelProvider
 from .pgn_export import build_pgn
-from .sheet import GameReading, flatten
+from .combine import build_tokens, classify, merge_headers
+from .imaging import crop_cell
+from .sheet import GameReading
 
 
 @dataclass
@@ -46,11 +48,11 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
 
     if not budget_ok():
         raise BudgetExhausted()
-    reading, call = provider.read_sheet(images)
-    record(call)
+    reading = _read(images, provider, record, budget_ok)
     lang = settings.notation_language
-    tokens = flatten(reading)
+    tokens = build_tokens(reading, lang)
     result = decode(tokens, lang)
+    layouts = {s.image: s.layout for s in reading.sheets}
     stopped = ""
 
     asked: set[int] = set()
@@ -70,9 +72,11 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
         board = chess.Board(ply.fen_before)
         legal = sorted(notation.render(board, m, notation.LANGUAGES[lang]) for m in board.legal_moves)
         prev = " ".join(p.local for p in result.plies[:ply.ply])
-        answer, call = provider.recheck(images, tok.number or ply.ply // 2 + 1,
-                                        tok.color or ("w" if ply.ply % 2 == 0 else "b"),
-                                        tok.text, ply.fen_before, legal, prev)
+        number = tok.number or ply.ply // 2 + 1
+        color = tok.color or ("w" if ply.ply % 2 == 0 else "b")
+        img = images[tok.sheet] if tok.sheet < len(images) else (images[0] if images else None)
+        crop = crop_cell(img, layouts.get(tok.sheet), number, color) if settings.recheck_crop and img else None
+        answer, call = provider.recheck([img] if img else images, number, color, tok.text, ply.fen_before, legal, prev, crop=crop)
         record(call)
         new = [c for c in answer.candidates if c not in tok.alternatives and c != tok.text]
         if not new:
@@ -83,6 +87,26 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
 
     pgn = build_pgn(reading.header, result, settings.pgn_comments_language)
     return GameOutcome(reading, result, pgn, calls, stopped, tokens=tokens)
+
+
+def _read(images, provider, record, budget_ok) -> GameReading:
+    """One photo: one reading. Several photos: each is read on its own (a second page
+    or the opponent's sheet would confuse a single reading), then classified."""
+    if len(images) <= 1:
+        reading, call = provider.read_sheet(images)
+        record(call)
+        return reading
+    readings = []
+    for i, img in enumerate(images):
+        if i and not budget_ok():
+            break
+        r, call = provider.read_sheet([img])
+        record(call)
+        for sh in r.sheets:
+            sh.image = i
+        readings.append(r)
+    sheets = classify([sh for r in readings for sh in r.sheets])
+    return GameReading(merge_headers([r.header for r in readings]), sheets)
 
 
 def _next_doubtful(result: DecodeResult, tokens, asked):

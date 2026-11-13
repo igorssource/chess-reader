@@ -99,7 +99,7 @@ class AnthropicProvider(ModelProvider):
         data, call = self._call(read_instructions(lang), content, _schema(SheetOut), "read", 16000)
         return to_reading(SheetOut.model_validate(data)), call
 
-    def recheck(self, images, move_number, color, written, fen, legal_moves, previous_moves):
+    def recheck(self, images, move_number, color, written, fen, legal_moves, previous_moves, crop=None):
         lang = self.settings.notation_language
         side = "White" if color == "w" else "Black"
         text = (f"Cell: move {move_number}, {side} column.\n"
@@ -107,7 +107,14 @@ class AnthropicProvider(ModelProvider):
                 f"Moves so far: {previous_moves or '(none)'}\n"
                 f"Position (FEN): {fen}\n"
                 f"Legal moves: {', '.join(legal_moves)}")
-        content = _image_blocks(images) + [{"type": "text", "text": text}]
+        if crop is not None:
+            # zoomed part of the photo around this cell (cut from the full-size upload), then the whole sheet
+            content = _image_blocks([crop]) + [{"type": "text", "text": (
+                f"Image 1: zoomed part of the sheet around move {move_number} (printed move numbers on the "
+                "left; the row may be a little higher or lower than the middle). Image 2: the whole sheet.")}]
+            content += _image_blocks(images) + [{"type": "text", "text": text}]
+        else:
+            content = _image_blocks(images) + [{"type": "text", "text": text}]
         data, call = self._call(recheck_instructions(lang), content, _schema(RecheckOut), "recheck", 4000)
         out = RecheckOut.model_validate(data)
         return RecheckAnswer(candidates=[c for c in out.candidates if c in legal_moves][:3],

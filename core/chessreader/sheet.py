@@ -37,13 +37,15 @@ class RawPly:
     kind: str = "move"                 # move | empty | illegible | gap (synthetic, numbering jump)
     pinned: bool = False               # a person chose this move in the review: the decoder must use it
     orig: str | None = None            # for a pinned cell: what the model had read there
+    sheet: int = 0                     # index of the photo this cell is on
 
 
 @dataclass
 class Sheet:
     plies: list[RawPly] = field(default_factory=list)
-    role: str = "main"                 # main | continuation | opponent (later stages)
+    role: str = "main"                 # main | continuation | opponent
     language: str = "de"
+    image: int = 0                     # index of the photo this sheet was read from
     # Where the move cells are on the photo (for zooming in during the review):
     # [{"first_move", "last_move", "left", "top", "right", "bottom"}], coordinates 0..1000.
     layout: list = field(default_factory=list)
@@ -79,6 +81,7 @@ def flatten(reading: GameReading) -> list[RawPly]:
         if sheet.role == "opponent":
             continue   # merging the opponent's sheet comes in a later stage
         for p in sheet.plies:
+            p.sheet = sheet.image
             res = result_of(p.text) if p.kind == "move" else None
             if res is not None:
                 if res != "*" and reading.header.result in ("*", "", None):

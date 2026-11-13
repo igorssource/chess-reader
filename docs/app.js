@@ -2,10 +2,13 @@
 (function () {
   "use strict";
   const API = (window.CHESS_READER_API || "").replace(/\/$/, "");
-  const MAX_SIDE = 1600;           // resize photos before upload: faster and cheaper
+  // Photos are sent in good resolution: the server reads a smaller copy, and cuts zoomed
+  // crops of doubtful moves from the full-size one. Two photos must stay under ~4 MB.
+  const MAX_SIDE = 2400;
   // How many photos one game may have. Stage 1: one. Later: 2nd page of the sheet,
   // opponent's sheet (the server already accepts several "files").
-  const MAX_PHOTOS = 1;
+  // 2nd photo: the opponent's sheet of the same game or the 2nd page (the server tells them apart).
+  const MAX_PHOTOS = 2;
 
   const T = {
     de: {
@@ -14,6 +17,7 @@
       s1: "Foto", s2: "Erkennung", s3: "PGN",
       selected: "Ausgewähltes Foto", send: "Ausgewähltes Foto senden", replace: "Anderes Foto wählen",
       add: "Weiteres Foto hinzufügen", remove: "Foto entfernen",
+      second: "Tipp: Füge ein zweites Foto hinzu – das Formular des Gegners zur selben Partie oder die zweite Seite. Dann werden die Züge zuverlässiger erkannt.",
       intro: "Fotografiere ein handschriftliches Partieformular. Die App liest die Züge, prüft sie nach den Schachregeln, markiert unsichere Stellen und erstellt eine PGN-Datei.",
       privacy: "Hinweis: Das Foto wird zur Erkennung an den KI-Anbieter Anthropic gesendet und auf unserem Server gespeichert, um die Erkennung zu verbessern. Lade nur Formulare hoch, mit deren Weitergabe du einverstanden bist.",
       camera: "Foto aufnehmen", upload: "Bild hochladen",
@@ -41,6 +45,7 @@
       s1: "Фото", s2: "Распознавание", s3: "PGN",
       selected: "Выбранное фото", send: "Отправить выбранное фото", replace: "Выбрать другое фото",
       add: "Добавить ещё фото", remove: "Убрать фото",
+      second: "Совет: добавьте второе фото — бланк соперника этой же партии или вторую страницу. Тогда ходы распознаются надёжнее.",
       intro: "Сфотографируйте рукописный бланк партии. Приложение прочитает ходы, проверит их по правилам шахмат, отметит сомнительные места и подготовит файл PGN.",
       privacy: "Обратите внимание: фото отправляется на распознавание в Anthropic (поставщик ИИ) и сохраняется на нашем сервере для улучшения распознавания. Загружайте только бланки, которыми вы готовы поделиться.",
       camera: "Сделать фото", upload: "Загрузить файл",
@@ -148,7 +153,7 @@
     const c = document.createElement("canvas");
     c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
     c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    return await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+    return await new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
   }
 
   // Step 1: the user picks a photo. We only show it; nothing is sent yet.
@@ -180,6 +185,8 @@
     // Pick buttons: shown while nothing is chosen, or while more photos may be added.
     $("pick-buttons").hidden = has && photos.length >= MAX_PHOTOS;
     $("replace").hidden = MAX_PHOTOS > 1;
+    $("second-hint").hidden = photos.length !== 1 || MAX_PHOTOS < 2;
+    $("camera-btn").classList.toggle("primary", !has);   // with a photo chosen, "send" is the main button
     const box = $("thumbs");
     box.innerHTML = "";
     photos.forEach((p, i) => {

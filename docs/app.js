@@ -3,10 +3,17 @@
   "use strict";
   const API = (window.CHESS_READER_API || "").replace(/\/$/, "");
   const MAX_SIDE = 1600;           // resize photos before upload: faster and cheaper
+  // How many photos one game may have. Stage 1: one. Later: 2nd page of the sheet,
+  // opponent's sheet (the server already accepts several "files").
+  const MAX_PHOTOS = 1;
 
   const T = {
     de: {
       title: "Partieformular → PGN",
+      subtitle: "Handschriftliche Partien schnell digitalisieren",
+      s1: "Foto", s2: "Erkennung", s3: "PGN",
+      selected: "Ausgewähltes Foto", send: "Ausgewähltes Foto senden", replace: "Anderes Foto wählen",
+      add: "Weiteres Foto hinzufügen", remove: "Foto entfernen",
       intro: "Fotografiere ein handschriftliches Partieformular. Die App liest die Züge, prüft sie nach den Schachregeln, markiert unsichere Stellen und erstellt eine PGN-Datei.",
       privacy: "Hinweis: Das Foto wird zur Erkennung an den KI-Anbieter Anthropic gesendet und auf unserem Server gespeichert, um die Erkennung zu verbessern. Lade nur Formulare hoch, mit deren Weitergabe du einverstanden bist.",
       camera: "Foto aufnehmen", upload: "Bild hochladen",
@@ -26,6 +33,10 @@
     },
     ru: {
       title: "Бланк партии → PGN",
+      subtitle: "Быстро переводим рукописные партии в цифру",
+      s1: "Фото", s2: "Распознавание", s3: "PGN",
+      selected: "Выбранное фото", send: "Отправить выбранное фото", replace: "Выбрать другое фото",
+      add: "Добавить ещё фото", remove: "Убрать фото",
       intro: "Сфотографируйте рукописный бланк партии. Приложение прочитает ходы, проверит их по правилам шахмат, отметит сомнительные места и подготовит файл PGN.",
       privacy: "Обратите внимание: фото отправляется на распознавание в Anthropic (поставщик ИИ) и сохраняется на нашем сервере для улучшения распознавания. Загружайте только бланки, которыми вы готовы поделиться.",
       camera: "Сделать фото", upload: "Загрузить файл",
@@ -47,7 +58,7 @@
 
   let lang = pick(localGet("lang") || (navigator.language || "de").slice(0, 2));
   let state = null;   // last server result
-  let photoUrl = null;
+  let photos = [];    // selected photos: [{blob, url}], sent only after the user confirms
   const $ = (id) => document.getElementById(id);
 
   function pick(l) { return T[l] ? l : "de"; }
@@ -64,10 +75,17 @@
     document.querySelectorAll(".lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === lang));
     document.title = t("title");
     if (state) renderResult();
+    renderSelected();
   }
 
   function show(step) {
     ["step-upload", "step-busy", "step-error", "step-result"].forEach((s) => ($(s).hidden = s !== step));
+    const n = { "step-upload": 1, "step-busy": 2, "step-error": 2, "step-result": 3 }[step];
+    document.querySelectorAll("#steps li").forEach((li) => {
+      const k = +li.dataset.step;
+      li.className = k < n ? "done" : k === n ? "now" : "";
+    });
+    window.scrollTo(0, 0);
   }
 
   async function resize(file) {
@@ -83,16 +101,58 @@
     return await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
   }
 
-  async function handleFile(file) {
+  // Step 1: the user picks a photo. We only show it; nothing is sent yet.
+  async function addPhoto(file) {
     if (!file) return;
     let blob;
     try { blob = await resize(file); } catch (e) { blob = file; }
-    if (photoUrl) URL.revokeObjectURL(photoUrl);
-    photoUrl = URL.createObjectURL(blob);
-    $("preview-busy").src = photoUrl; $("preview").src = photoUrl;
+    if (photos.length >= MAX_PHOTOS) clearPhotos();   // with one photo: "pick again" replaces it
+    photos.push({ blob, url: URL.createObjectURL(blob) });
+    $("camera").value = ""; $("file").value = "";
+    renderSelected();
+  }
+
+  function removePhoto(i) {
+    URL.revokeObjectURL(photos[i].url);
+    photos.splice(i, 1);
+    renderSelected();
+  }
+
+  function clearPhotos() {
+    photos.forEach((p) => URL.revokeObjectURL(p.url));
+    photos = [];
+  }
+
+  function renderSelected() {
+    const has = photos.length > 0;
+    $("selected").hidden = !has;
+    $("send-buttons").hidden = !has;
+    // Pick buttons: shown while nothing is chosen, or while more photos may be added.
+    $("pick-buttons").hidden = has && photos.length >= MAX_PHOTOS;
+    $("replace").hidden = MAX_PHOTOS > 1;
+    const box = $("thumbs");
+    box.innerHTML = "";
+    photos.forEach((p, i) => {
+      const fig = document.createElement("figure");
+      fig.className = "thumb";
+      const img = document.createElement("img");
+      img.src = p.url; img.alt = "";
+      const x = document.createElement("button");
+      x.className = "remove"; x.type = "button"; x.textContent = "×";
+      x.title = t("remove"); x.setAttribute("aria-label", t("remove"));
+      x.onclick = () => removePhoto(i);
+      fig.append(img, x);
+      box.appendChild(fig);
+    });
+  }
+
+  // Step 2: the user confirmed. Send all selected photos to the server.
+  async function send() {
+    if (!photos.length) return;
+    $("preview-busy").src = photos[0].url; $("preview").src = photos[0].url;
     show("step-busy");
     const form = new FormData();
-    form.append("files", blob, "sheet.jpg");
+    photos.forEach((p, i) => form.append("files", p.blob, `sheet-${i + 1}.jpg`));
     let resp, data;
     try {
       resp = await fetch(API + "/api/process", { method: "POST", body: form });
@@ -117,7 +177,7 @@
 
   function fillHeader(h) {
     for (const k of ["white", "black", "event", "site", "round"]) $("h-" + k).value = h[k] === "?" ? "" : (h[k] || "");
-    $("h-date").value = (h.date || "").includes("?") ? "" : h.date;
+    $("h-date").value = (h.date || "").includes("?") ? "" : (h.date || "");
     $("h-result").value = h.result || "*";
   }
 
@@ -193,10 +253,14 @@
     const pgn = await currentPgn();
     try { await navigator.clipboard.writeText(pgn); $("copy").textContent = t("copied"); setTimeout(() => ($("copy").textContent = t("copy")), 1500); } catch (e) { /* ignore */ }
   };
-  const again = () => { state = null; $("camera").value = ""; $("file").value = ""; show("step-upload"); };
-  $("again").onclick = again; $("again-error").onclick = again;
-  $("camera").onchange = (e) => handleFile(e.target.files[0]);
-  $("file").onchange = (e) => handleFile(e.target.files[0]);
+  // New sheet: forget everything. After an error: keep the photo so it can be sent again.
+  $("again").onclick = () => { state = null; clearPhotos(); renderSelected(); show("step-upload"); };
+  $("again-error").onclick = () => { state = null; renderSelected(); show("step-upload"); };
+  $("camera").onchange = (e) => addPhoto(e.target.files[0]);
+  $("file").onchange = (e) => addPhoto(e.target.files[0]);
+  $("send").onclick = send;
+  $("replace").onclick = () => { clearPhotos(); renderSelected(); };
   document.querySelectorAll(".lang button").forEach((b) => (b.onclick = () => { lang = b.dataset.lang; localSet("lang", lang); applyLang(); }));
   applyLang();
+  show("step-upload");
 })();

@@ -8,27 +8,52 @@
 </head>
 <body>
 <header class="top">
-  <h1 data-t="title">Partieformular → PGN</h1>
+  <div class="brand">
+    <span class="logo" aria-hidden="true">♞</span>
+    <div>
+      <h1 data-t="title">Partieformular → PGN</h1>
+      <p class="sub" data-t="subtitle"></p>
+    </div>
+  </div>
   <div class="lang">
     <button data-lang="de">DE</button><button data-lang="ru">RU</button>
   </div>
 </header>
 
 <main>
+  <ol class="steps" id="steps">
+    <li data-step="1"><span class="dot">1</span><span data-t="s1"></span></li>
+    <li data-step="2"><span class="dot">2</span><span data-t="s2"></span></li>
+    <li data-step="3"><span class="dot">3</span><span data-t="s3"></span></li>
+  </ol>
+
   <section class="card" id="step-upload">
-    <p data-t="intro"></p>
-    <div class="notice" data-t="privacy"></div>
-    <div class="buttons">
-      <label class="btn primary"><span data-t="camera"></span>
+    <p class="intro" data-t="intro"></p>
+
+    <!-- Selected photos. Built for several photos (2nd page, opponent's sheet); MAX_PHOTOS in app.js is 1 for now. -->
+    <div id="selected" class="selected" hidden>
+      <h2 data-t="selected"></h2>
+      <div id="thumbs" class="thumbs"></div>
+    </div>
+
+    <div class="buttons" id="pick-buttons">
+      <label class="btn primary" id="camera-btn"><span class="ico" aria-hidden="true">📷</span><span data-t="camera"></span>
         <input type="file" accept="image/*" capture="environment" id="camera" hidden></label>
-      <label class="btn"><span data-t="upload"></span>
+      <label class="btn" id="file-btn"><span class="ico" aria-hidden="true">🖼️</span><span data-t="upload"></span>
         <input type="file" accept="image/*" id="file" hidden></label>
     </div>
+
+    <div class="buttons" id="send-buttons" hidden>
+      <button class="btn primary big" id="send" data-t="send"></button>
+      <button class="btn" id="replace" data-t="replace"></button>
+    </div>
+
+    <div class="notice" data-t="privacy"></div>
     <p class="hint" data-t="tips"></p>
   </section>
 
   <section class="card" id="step-busy" hidden>
-    <img id="preview-busy" class="preview" alt="">
+    <img id="preview-busy" class="preview busy-img" alt="">
     <p class="busy"><span class="spinner"></span><span data-t="busy"></span></p>
   </section>
 

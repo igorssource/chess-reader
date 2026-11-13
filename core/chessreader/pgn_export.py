@@ -5,6 +5,7 @@ import chess
 import chess.pgn
 
 from .decoder import DecodeResult
+from .openings import detect as detect_opening
 from .sheet import Header
 
 # Comment texts are settings too (PGN is usually read by German-speaking club members).
@@ -26,6 +27,10 @@ def build_pgn(header: Header, result: DecodeResult, comments_language: str = "de
     game.headers["White"] = header.white or "?"
     game.headers["Black"] = header.black or "?"
     game.headers["Result"] = header.result if header.result in ("1-0", "0-1", "1/2-1/2", "*") else "*"
+    opening = detect_opening([p.san for p in result.plies])
+    if opening:
+        game.headers["ECO"] = opening.eco
+        game.headers["Opening"] = opening.name
     node = game
     for p in result.plies:
         board = node.board()

@@ -22,6 +22,7 @@ from chessreader.decoder import DecodedPly, DecodeResult
 from chessreader.model import get_provider
 from chessreader.model.anthropic_provider import ModelError
 from chessreader.model.base import Image
+from chessreader.openings import detect as detect_opening
 from chessreader.pgn_export import build_pgn
 from chessreader.pipeline import BudgetExhausted, process_cascade, process_game
 from chessreader.sheet import Header
@@ -143,6 +144,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         "plies": [p.__dict__ for p in r.plies],
         "skipped_cells": [outcome_cell(outcome, i) for i in r.skipped_tokens],
         "pgn": outcome.pgn,
+        "opening": _opening([p.san for p in r.plies]),
         "model_calls": len(outcome.calls),
         "stopped_because": outcome.stopped_because,
         "language": s.notation_language,
@@ -181,7 +183,13 @@ def pgn(req: PgnRequest):
                                 alternatives=m.get("alternatives", [])))
         board.push(mv)
     header = Header(**{k: v for k, v in req.header.items() if k in Header.__dataclass_fields__})
-    return {"pgn": build_pgn(header, DecodeResult(plies, [], 0, board.fen()), s.pgn_comments_language)}
+    return {"pgn": build_pgn(header, DecodeResult(plies, [], 0, board.fen()), s.pgn_comments_language),
+            "opening": _opening([p.san for p in plies])}
+
+
+def _opening(sans):
+    o = detect_opening(sans)
+    return o.to_dict() if o else None
 
 
 @app.get("/api/stats")

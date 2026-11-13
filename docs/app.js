@@ -22,6 +22,8 @@
       header: "Partiedaten", white: "Weiß", black: "Schwarz", event: "Turnier", site: "Ort", date: "Datum", round: "Runde", result: "Ergebnis",
       moves: "Züge", "l-ok": "sicher", "l-fixed": "automatisch korrigiert", "l-doubtful": "bitte prüfen",
       download: "PGN herunterladen", copy: "PGN kopieren", copied: "Kopiert", again: "Neues Formular",
+      lichess: "In Lichess öffnen", lichess_busy: "Lichess wird geöffnet …",
+      lichess_failed: "Lichess hat die Partie gerade nicht angenommen (vielleicht zu viele Uploads). Die PGN ist kopiert: auf der geöffneten Lichess-Seite einfügen.",
       footer: "STRATEG Stuttgart · Partieformular-Leser",
       written: "Auf dem Formular", alternatives: "Andere Möglichkeiten", missing: "Dieser Zug fehlt auf dem Formular und wurde aus der Stellung ergänzt.",
       fill: "Leeres Feld: Zug aus der Stellung ergänzt.", similar: "Ähnlich geschriebener legaler Zug gewählt.", alternative: "Vom KI-Modell als zweite Lesart vorgeschlagen.", exact: "Wie geschrieben.",
@@ -45,6 +47,8 @@
       header: "Данные партии", white: "Белые", black: "Чёрные", event: "Турнир", site: "Место", date: "Дата", round: "Тур", result: "Результат",
       moves: "Ходы", "l-ok": "уверенно", "l-fixed": "исправлено автоматически", "l-doubtful": "проверьте",
       download: "Скачать PGN", copy: "Копировать PGN", copied: "Скопировано", again: "Новый бланк",
+      lichess: "Открыть в Lichess", lichess_busy: "Открываю Lichess …",
+      lichess_failed: "Lichess сейчас не принял партию (возможно, слишком много загрузок подряд). PGN скопирован: вставьте его на открывшейся странице Lichess.",
       footer: "STRATEG Stuttgart · распознаватель бланков",
       written: "На бланке", alternatives: "Другие варианты", missing: "Этого хода нет на бланке, он восстановлен по позиции.",
       fill: "Пустая клетка: ход восстановлен по позиции.", similar: "Выбран легальный ход, похожий по написанию.", alternative: "Второй вариант прочтения от модели.", exact: "Как написано.",
@@ -252,6 +256,30 @@
   $("copy").onclick = async () => {
     const pgn = await currentPgn();
     try { await navigator.clipboard.writeText(pgn); $("copy").textContent = t("copied"); setTimeout(() => ($("copy").textContent = t("copy")), 1500); } catch (e) { /* ignore */ }
+  };
+  // Lichess: import through its public API (no login needed) and open the game.
+  // The tab is opened right away, before any waiting, so phones do not block it as a pop-up.
+  $("lichess").onclick = async () => {
+    const btn = $("lichess");
+    const win = window.open("about:blank", "_blank");
+    btn.disabled = true; btn.textContent = t("lichess_busy");
+    let pgn = "";
+    try {
+      pgn = await currentPgn();
+      const resp = await fetch("https://lichess.org/api/import", {
+        method: "POST", headers: { Accept: "application/json" }, body: new URLSearchParams({ pgn }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.url) throw new Error(resp.status);
+      if (win) win.location.href = data.url; else location.href = data.url;
+    } catch (e) {
+      // Fallback: copy the PGN and open the manual import page.
+      try { if (pgn) await navigator.clipboard.writeText(pgn); } catch (e2) { /* ignore */ }
+      if (win) win.location.href = "https://lichess.org/paste";
+      alert(t("lichess_failed"));
+    } finally {
+      btn.disabled = false; btn.textContent = t("lichess");
+    }
   };
   // New sheet: forget everything. After an error: keep the photo so it can be sent again.
   $("again").onclick = () => { state = null; clearPhotos(); renderSelected(); show("step-upload"); };

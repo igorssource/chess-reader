@@ -7,8 +7,9 @@ from ..sheet import GameReading
 
 @dataclass
 class Image:
-    data: bytes
+    data: bytes                        # what the model gets for reading the whole sheet
     media_type: str = "image/jpeg"
+    hires: bytes | None = None         # the uploaded photo in full size (for zoomed crops)
 
 
 @dataclass
@@ -35,5 +36,6 @@ class ModelProvider:
         raise NotImplementedError
 
     def recheck(self, images: list[Image], move_number: int, color: str, written: str,
-                fen: str, legal_moves: list[str], previous_moves: str) -> tuple[RecheckAnswer, ModelCall]:
+                fen: str, legal_moves: list[str], previous_moves: str,
+                crop: Image | None = None) -> tuple[RecheckAnswer, ModelCall]:
         raise NotImplementedError

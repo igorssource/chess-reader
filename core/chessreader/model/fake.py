@@ -12,12 +12,17 @@ class FakeProvider(ModelProvider):
         self.reading = reading
         self.recheck_answers = recheck_answers or {}
         self.calls = 0
+        self.reads = 0
+        self.last_crop = None
 
     def read_sheet(self, images):
         self.calls += 1
-        return self.reading or demo_reading(), ModelCall(model=getattr(self.settings, "model_name", "fake"), cost_eur=0.01, purpose="read")
+        self.reads += 1
+        r = self.reading[min(self.reads - 1, len(self.reading) - 1)] if isinstance(self.reading, list) else self.reading
+        return r or demo_reading(), ModelCall(model=getattr(self.settings, "model_name", "fake"), cost_eur=0.01, purpose="read")
 
-    def recheck(self, images, move_number, color, written, fen, legal_moves, previous_moves):
+    def recheck(self, images, move_number, color, written, fen, legal_moves, previous_moves, crop=None):
+        self.last_crop = crop
         self.calls += 1
         cands = [c for c in self.recheck_answers.get((move_number, color), []) if c in legal_moves]
         return RecheckAnswer(candidates=cands), ModelCall(model=getattr(self.settings, "model_name", "fake"), cost_eur=0.01, purpose="recheck")

@@ -22,6 +22,7 @@ from chessreader.config import MODEL_PRICES_USD, Settings
 from chessreader.decoder import DecodedPly, DecodeResult
 from chessreader.model import get_provider
 from chessreader.model.anthropic_provider import ModelError
+from chessreader.imaging import prepare
 from chessreader.model.base import Image
 from chessreader.openings import detect as detect_opening
 from chessreader.pgn_export import build_pgn
@@ -34,7 +35,7 @@ from .limits import Budget, log_game, stats
 from .photos import new_game_id, store_photo
 from .references import REFERENCES, compare
 
-MAX_IMAGES = 2              # stage 1 uses one; room for a continuation sheet
+MAX_IMAGES = 2              # the sheet + a continuation page or the opponent's sheet
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
 app = FastAPI(title="Chess Reader API")
@@ -97,7 +98,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         if len(data) > MAX_IMAGE_BYTES:
             return _err(413, "too_large", "photo is too large")
         mt = f.content_type if f.content_type in ("image/jpeg", "image/png", "image/webp") else "image/jpeg"
-        images.append(Image(data, mt))
+        images.append(prepare(Image(data, mt)))   # smaller copy for reading, full size kept for zoomed crops
 
     kv = get_kv()
     budget = Budget(kv, s)
@@ -105,7 +106,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
     photo_refs, photo_errors = [], []
     if s.store_photos:
         for i, img in enumerate(images):
-            pref, err = store_photo(img.data, img.media_type, game_id, i, request.headers)
+            pref, err = store_photo(img.hires or img.data, img.media_type, game_id, i, request.headers)
             photo_refs.append(pref)
             if err:
                 photo_errors.append(err)
@@ -160,8 +161,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
 
 
 def outcome_cell(outcome, i):
-    from chessreader.sheet import flatten
-    toks = flatten(outcome.reading)
+    toks = outcome.tokens
     t = toks[i] if i < len(toks) else None
     return {"index": i, "text": t.text if t else "", "number": t.number if t else None,
             "color": t.color if t else None}

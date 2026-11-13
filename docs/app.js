@@ -20,7 +20,7 @@
       tips: "Tipps: Formular flach hinlegen, gutes Licht, ganzes Formular im Bild.",
       busy: "Formular wird gelesen … das kann bis zu einer Minute dauern.",
       header: "Partiedaten", white: "Weiß", black: "Schwarz", event: "Turnier", site: "Ort", date: "Datum", round: "Runde", result: "Ergebnis",
-      moves: "Züge", "l-ok": "sicher", "l-fixed": "automatisch korrigiert", "l-doubtful": "bitte prüfen",
+      opening: "Eröffnung", moves: "Züge", "l-ok": "sicher", "l-fixed": "automatisch korrigiert", "l-doubtful": "bitte prüfen",
       download: "PGN herunterladen", copy: "PGN kopieren", copied: "Kopiert", again: "Neues Formular",
       history: "Meine Partien", history_hint: "Gespeichert nur in diesem Browser auf diesem Gerät.",
       open: "Öffnen", del: "Löschen", del_sure: "Wirklich löschen?", last: "zuletzt", unnamed: "Partie ohne Namen",
@@ -47,7 +47,7 @@
       tips: "Советы: положите бланк ровно, хорошее освещение, весь бланк в кадре.",
       busy: "Читаю бланк … это может занять до минуты.",
       header: "Данные партии", white: "Белые", black: "Чёрные", event: "Турнир", site: "Место", date: "Дата", round: "Тур", result: "Результат",
-      moves: "Ходы", "l-ok": "уверенно", "l-fixed": "исправлено автоматически", "l-doubtful": "проверьте",
+      opening: "Дебют", moves: "Ходы", "l-ok": "уверенно", "l-fixed": "исправлено автоматически", "l-doubtful": "проверьте",
       download: "Скачать PGN", copy: "Копировать PGN", copied: "Скопировано", again: "Новый бланк",
       history: "Мои партии", history_hint: "Хранятся только в этом браузере на этом устройстве.",
       open: "Открыть", del: "Удалить", del_sure: "Точно удалить?", last: "последняя", unnamed: "Партия без названия",
@@ -310,7 +310,8 @@
       const info = document.createElement("button");
       info.type = "button"; info.className = "ginfo";
       const h = g.header || {};
-      const meta = [h.result && h.result !== "*" ? h.result : "", h.event && h.event !== "?" ? h.event : "",
+      const op = openingFrom(g.pgn);
+      const meta = [h.result && h.result !== "*" ? h.result : "", op ? op.local : "", h.event && h.event !== "?" ? h.event : "",
         new Date(g.created).toLocaleString(lang === "ru" ? "ru-RU" : "de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })]
         .filter(Boolean).join(" · ");
       info.innerHTML = `<b>${esc(gameTitle(h))}</b>${i === 0 ? ` <span class="tag">${esc(t("last"))}</span>` : ""}<small>${esc(meta)}</small>`;
@@ -375,6 +376,28 @@
     $("summary").textContent = sum;
     $("detail").hidden = true;
     $("pgn").textContent = state.pgn;
+    showOpening();
+  }
+
+  // ---- Opening name: the server writes [ECO] and [Opening] (English) into the PGN;
+  // here the family part is translated (docs/openings.js).
+  function openingFrom(pgn) {
+    const tag = (k) => { const m = (pgn || "").match(new RegExp(`\\[${k} "([^"]*)"\\]`)); return m ? m[1] : ""; };
+    const name = tag("Opening"), eco = tag("ECO");
+    if (!name) return null;
+    const i = name.indexOf(":");
+    const family = i < 0 ? name : name.slice(0, i), variation = i < 0 ? "" : name.slice(i + 1).trim();
+    const tr = (window.OPENING_NAMES || {})[family];
+    const local = tr ? tr[lang === "ru" ? 0 : 1] : family;
+    return { eco, name, local, variation: tr ? name : variation };
+  }
+
+  function showOpening() {
+    const o = openingFrom(state && state.pgn), el = $("opening");
+    el.hidden = !o;
+    if (!o) return;
+    el.innerHTML = `<b>${esc(t("opening"))}:</b> ${esc(o.local)}${o.eco ? ` <span class="eco">${esc(o.eco)}</span>` : ""}` +
+      (o.variation ? `<small>${esc(o.variation)}</small>` : "");
   }
 
   function showDetail(p, el) {
@@ -401,6 +424,7 @@
       if (!data.pgn) throw new Error("no pgn");
       $("pgn").textContent = data.pgn;
       state.pgn = data.pgn;
+      showOpening();
       if (currentId) { const id = currentId; DB.get(id).then((g) => { if (g) { g.pgn = data.pgn; g.header = header(); return saveGame(g); } }).catch(() => {}); }
       return data.pgn;
     } catch (e) {

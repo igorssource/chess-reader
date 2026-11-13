@@ -39,6 +39,7 @@ def test_pgn_after_edit():
                                       "moves": [{"san": "e4"}, {"san": "e5", "status": "doubtful",
                                                                 "written": "e6", "local": "e5"}]})
     assert r.status_code == 200 and "1. e4 e5" in r.json()["pgn"]
+    assert r.json()["opening"]["family"] == "King's Pawn Game" and '[ECO "C20"]' in r.json()["pgn"]
 
 
 def test_admin_model_and_reference():

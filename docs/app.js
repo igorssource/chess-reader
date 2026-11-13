@@ -34,14 +34,6 @@
       e_daily_limit: "Das Tageslimit ist erreicht. Bitte versuche es morgen wieder.",
       e_model_error: "Das Formular konnte nicht gelesen werden: ", e_network: "Keine Verbindung zum Server.",
       e_too_large: "Das Foto ist zu groß.", e_other: "Fehler: ",
-      review_hint: "Tippe auf einen Zug, um ihn auf dem Brett zu sehen und zu korrigieren. Rote Züge zuerst prüfen.",
-      "l-user": "von dir bestätigt", user: "Von dir gewählt.", flip: "⟲ Brett drehen",
-      next_doubt: (n) => `Nächsten unsicheren Zug prüfen (${n})`, all_checked: "✓ Alle unsicheren Züge sind geprüft.",
-      choose: "Richtiger Zug:", confirm: "✓ Stimmt", all_legal: (n) => `Alle erlaubten Züge (${n})`,
-      fixing: "Rest der Partie wird neu berechnet …", fix_failed: "Konnte nicht neu berechnen: ",
-      add_move: "+ Zug hinzufügen", add_title: "Neuer Zug am Ende der Partie", start_pos: "Anfangsstellung",
-      photo_tap: "Antippen zum Vergrößern.", no_written: "Nicht auf dem Formular.",
-      pieces: { K: "König", D: "Dame", T: "Turm", L: "Läufer", S: "Springer", "": "Bauer", "0": "Rochade" },
     },
     ru: {
       title: "Бланк партии → PGN",
@@ -69,14 +61,6 @@
       e_daily_limit: "Дневной лимит исчерпан. Попробуйте завтра.",
       e_model_error: "Не удалось прочитать бланк: ", e_network: "Нет связи с сервером.",
       e_too_large: "Фото слишком большое.", e_other: "Ошибка: ",
-      review_hint: "Нажмите на ход, чтобы увидеть его на доске и исправить. Красные ходы проверьте в первую очередь.",
-      "l-user": "проверено вами", user: "Выбрано вами.", flip: "⟲ Перевернуть",
-      next_doubt: (n) => `Проверить следующий сомнительный ход (${n})`, all_checked: "✓ Все сомнительные ходы проверены.",
-      choose: "Правильный ход:", confirm: "✓ Верно", all_legal: (n) => `Все допустимые ходы (${n})`,
-      fixing: "Пересчитываю остаток партии …", fix_failed: "Не удалось пересчитать: ",
-      add_move: "+ Добавить ход", add_title: "Новый ход в конце партии", start_pos: "Начальная позиция",
-      photo_tap: "Нажмите, чтобы увеличить.", no_written: "На бланке его нет.",
-      pieces: { K: "Король", D: "Ферзь", T: "Ладья", L: "Слон", S: "Конь", "": "Пешка", "0": "Рокировка" },
     },
   };
 
@@ -242,10 +226,9 @@
     state = data;
     currentId = String(Date.now());
     await saveGame({ id: currentId, created: Date.now(), header: data.header, plies: data.plies, pgn: data.pgn,
-      skipped_cells: data.skipped_cells || [], cells: data.cells || null, layout: data.layout || [],
-      language: data.language || "de", photo: photos[0].blob });
+      skipped_cells: data.skipped_cells || [], photo: photos[0].blob });
     fillHeader(data.header);
-    startReview();
+    renderResult();
     showAdminResult(data.admin);
     show("step-result");
   }
@@ -284,14 +267,13 @@
     if (!g) return;
     $("admin-result").hidden = true;
     currentId = g.id;
-    state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells,
-      cells: g.cells || null, layout: g.layout || [], language: g.language || "de" };
+    state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells };
     if (resultPhotoUrl) URL.revokeObjectURL(resultPhotoUrl);
     resultPhotoUrl = g.photo ? URL.createObjectURL(g.photo) : null;
     $("preview").hidden = !resultPhotoUrl;
     if (resultPhotoUrl) $("preview").src = resultPhotoUrl;
     fillHeader(g.header);
-    startReview();
+    renderResult();
     show("step-result");
   }
 
@@ -368,35 +350,6 @@
     return h;
   }
 
-  // ---- Stage 2: review. Board next to the photo, every move can be checked and fixed by
-  // picking from the legal moves; the server then decodes the rest of the game again
-  // (no model call, no cost). Positions and legal moves come from chess.js (docs/vendor).
-  let sel = -1;          // selected half-move (-1 = start position, plies.length = "add a move")
-  let flipped = false;
-  let fens = [];         // fens[k] = position before half-move k; fens[n] = final position
-
-  const DE = { N: "S", B: "L", R: "T", Q: "D", K: "K" };
-  function localSan(san) {
-    // English SAN from chess.js -> German letters, castling with zeros (as the server writes it)
-    return san.replace(/[NBRQK]/g, (c) => DE[c]).replace(/O/g, "0");
-  }
-
-  function computeFens() {
-    const c = new window.Chess();
-    fens = [c.fen()];
-    for (const p of state.plies) {
-      if (!c.move(p.san)) break;
-      fens.push(c.fen());
-    }
-  }
-
-  function startReview() {
-    computeFens();
-    const first = state.plies.findIndex((p) => p.status === "doubtful");
-    renderResult();
-    select(first >= 0 ? first : state.plies.length - 1, false);
-  }
-
   function renderResult() {
     const body = $("moves");
     body.innerHTML = "";
@@ -406,12 +359,11 @@
       tr.innerHTML = `<td class="n">${i / 2 + 1}.</td><td></td><td></td>`;
       [plies[i], plies[i + 1]].forEach((p, j) => {
         if (!p) return;
-        const s = document.createElement("button");
-        s.type = "button";
-        s.className = "m " + p.status + (p.reason === "user" ? " user" : "") + (i + j === sel ? " sel" : "");
+        const s = document.createElement("span");
+        s.className = "m " + p.status;
         s.textContent = p.local;
-        s.dataset.ply = i + j;
-        s.onclick = () => select(i + j, true);
+        s.tabIndex = p.status === "ok" ? -1 : 0;
+        s.onclick = () => showDetail(p, s);
         tr.children[j + 1].appendChild(s);
       });
       body.appendChild(tr);
@@ -422,231 +374,10 @@
     if (state.skipped_cells && state.skipped_cells.length)
       sum += " · " + t("skipped")(state.skipped_cells.map((c) => `${c.number || "?"}${c.color === "b" ? "…" : "."} ${c.text}`).join(", "));
     $("summary").textContent = sum;
-    $("next-doubt").hidden = d === 0;
-    $("next-doubt").textContent = t("next_doubt")(d);
-    $("all-checked").hidden = d > 0 || !plies.length;
-    $("add-move").classList.toggle("sel", sel === plies.length);
+    $("detail").hidden = true;
     $("pgn").textContent = state.pgn;
     showOpening();
-    if (sel >= -1) { renderBoard(); renderEditor(); }
   }
-
-  function moveNo(k) { return Math.floor(k / 2) + 1 + (k % 2 ? "… " : ". "); }
-
-  function select(k, scroll) {
-    sel = Math.max(-1, Math.min(k, state.plies.length));
-    document.querySelectorAll("#moves .m").forEach((x) => x.classList.toggle("sel", +x.dataset.ply === sel));
-    $("add-move").classList.toggle("sel", sel === state.plies.length);
-    renderBoard();
-    renderEditor();
-    if (scroll) {
-      const el = document.querySelector(`#moves .m[data-ply="${sel}"]`);
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
-    }
-  }
-
-  // Board: position after the selected move (before it for "add a move").
-  const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
-  function renderBoard() {
-    const n = state.plies.length;
-    const after = sel >= n ? n : sel + 1;
-    const fen = fens[Math.min(after, fens.length - 1)] || fens[0];
-    const rows = fen.split(" ")[0].split("/");
-    const grid = [];
-    rows.forEach((r) => {
-      const row = [];
-      for (const ch of r) {
-        if (/\d/.test(ch)) for (let i = 0; i < +ch; i++) row.push(null);
-        else row.push(ch);
-      }
-      grid.push(row);
-    });
-    let from = "", to = "";
-    if (sel >= 0 && sel < n && fens[sel]) {
-      const c = new window.Chess(fens[sel]);
-      const m = c.move(state.plies[sel].san);
-      if (m) { from = m.from; to = m.to; }
-    }
-    const b = $("board");
-    b.innerHTML = "";
-    for (let ri = 0; ri < 8; ri++) {
-      for (let fi = 0; fi < 8; fi++) {
-        const r = flipped ? 7 - ri : ri, f = flipped ? 7 - fi : fi;
-        const sq = "abcdefgh"[f] + (8 - r);
-        const d = document.createElement("div");
-        d.className = "sq " + ((r + f) % 2 ? "dark" : "light") + (sq === from || sq === to ? " hl" : "");
-        const pc = grid[r][f];
-        if (pc) {
-          const s = document.createElement("span");
-          s.className = "pc " + (pc === pc.toUpperCase() ? "w" : "b");
-          s.textContent = GLYPH[pc.toLowerCase()] + "︎";
-          d.appendChild(s);
-        }
-        if (fi === 0) d.insertAdjacentHTML("beforeend", `<i class="rk">${8 - r}</i>`);
-        if (ri === 7) d.insertAdjacentHTML("beforeend", `<i class="fl">${"abcdefgh"[f]}</i>`);
-        b.appendChild(d);
-      }
-    }
-    $("nav-label").textContent = sel < 0 ? t("start_pos") : sel >= n ? "+" : moveNo(sel) + state.plies[sel].local;
-  }
-
-  // Editor for the selected move: zoomed part of the photo, what was written, the choices.
-  function renderEditor() {
-    const n = state.plies.length;
-    const ed = $("editor");
-    $("ed-error").hidden = true;
-    if (sel < 0 || !fens[Math.min(sel, n)]) { ed.hidden = true; return; }
-    ed.hidden = false;
-    const p = sel < n ? state.plies[sel] : null;
-    const ttl = $("ed-title");
-    if (p) {
-      ttl.innerHTML = `<span class="m ${p.status}${p.reason === "user" ? " user" : ""}">${esc(moveNo(sel) + p.local)}</span> ` +
-        esc(p.reason === "user" ? t("user") : t(p.reason) || "");
-    } else {
-      ttl.textContent = moveNo(sel) + "… " + t("add_title");
-    }
-    const info = [];
-    if (p) info.push(p.written ? `${esc(t("written"))}: «${esc(p.written)}»` : esc(t("no_written")));
-    $("ed-info").innerHTML = info.join("<br>");
-    drawCrop(p, sel);
-
-    // Legal moves in this position, in the sheet's notation
-    const c = new window.Chess(fens[sel]);
-    const legal = c.moves({ verbose: true }).map((m) => ({ san: m.san, local: localSan(m.san), piece: m.piece }));
-    const bySan = {}, byLocal = {};
-    legal.forEach((m) => { bySan[m.san] = m; byLocal[m.local] = m; });
-    const ch = $("ed-choices");
-    ch.innerHTML = "";
-    const add = (box, m, cls, label) => {
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.className = "chip " + (cls || "");
-      btn.textContent = label || m.local;
-      btn.onclick = () => fixMove(sel, m.san);
-      box.appendChild(btn);
-    };
-    if (p) {
-      const lab = document.createElement("span");
-      lab.className = "choose"; lab.textContent = t("choose");
-      ch.appendChild(lab);
-      if (bySan[p.san]) add(ch, bySan[p.san], "cur", `${t("confirm")}: ${p.local}`);
-      const seen = new Set([p.san]);
-      (p.alternatives || []).forEach((a) => {
-        const m = byLocal[a] || byLocal[a.replace(/[+#]$/, "")];
-        if (m && !seen.has(m.san)) { seen.add(m.san); add(ch, m, "alt"); }
-      });
-    }
-    // all legal moves grouped by piece
-    const ORDER = { k: "K", q: "D", r: "T", b: "L", n: "S", p: "" };
-    const groups = {};
-    legal.forEach((m) => {
-      const g = m.san.startsWith("O-O") ? "0" : ORDER[m.piece];
-      (groups[g] = groups[g] || []).push(m);
-    });
-    const box = $("ed-legal");
-    box.innerHTML = "";
-    ["", "S", "L", "T", "D", "K", "0"].forEach((g) => {
-      if (!groups[g]) return;
-      const row = document.createElement("div");
-      row.className = "lgroup";
-      row.innerHTML = `<b>${esc(t("pieces")[g])}</b>`;
-      groups[g].sort((a, b) => a.local.localeCompare(b.local)).forEach((m) => add(row, m, p && m.san === p.san ? "cur" : ""));
-      box.appendChild(row);
-    });
-    $("ed-all-sum").textContent = t("all_legal")(legal.length);
-    $("ed-all").open = !p || !p.alternatives || !p.alternatives.length;
-  }
-
-  // Where the cell of a move is on the photo: the model gives the rectangle of each block
-  // of move rows; rows are spread evenly, White on the left half, Black on the right half.
-  function cellRect(p, k) {
-    const L = state.layout || [];
-    if (!L.length) return null;
-    const cell = p && p.token != null && state.cells ? state.cells[p.token] : null;
-    const num = (cell && cell.number) || Math.floor(k / 2) + 1;
-    const color = (cell && cell.color) || (k % 2 ? "b" : "w");
-    const b = L.find((x) => num >= x.first_move && num <= x.last_move);
-    if (!b) return null;
-    const rows = b.last_move - b.first_move + 1, rh = (b.bottom - b.top) / rows;
-    const y = b.top + (num - b.first_move) * rh, mid = (b.left + b.right) / 2;
-    return { block: b, rh, x0: color === "w" ? b.left : mid, x1: color === "w" ? mid : b.right, y0: y, y1: y + rh };
-  }
-
-  function drawCrop(p, k) {
-    const cv = $("crop"), img = $("preview");
-    const r = cellRect(p, k);
-    if (!r || !img.src || !img.naturalWidth) { cv.hidden = true; if (r && img.src) img.onload = () => drawCrop(p, k); return; }
-    const W = img.naturalWidth / 1000, H = img.naturalHeight / 1000;
-    const bw = r.block.right - r.block.left;
-    const sx0 = Math.max(0, r.block.left - bw * 0.12), sx1 = Math.min(1000, r.block.right + bw * 0.04);
-    const sy0 = Math.max(0, r.y0 - r.rh * 1.6), sy1 = Math.min(1000, r.y1 + r.rh * 1.6);
-    const sw = (sx1 - sx0) * W, sh = (sy1 - sy0) * H;
-    const outW = Math.min(900, Math.max(320, sw));
-    const scale = outW / sw;
-    cv.width = Math.round(outW); cv.height = Math.round(sh * scale);
-    const g = cv.getContext("2d");
-    g.drawImage(img, sx0 * W, sy0 * H, sw, sh, 0, 0, cv.width, cv.height);
-    g.strokeStyle = "#e53935"; g.lineWidth = 3;
-    g.strokeRect((r.x0 - sx0) * W * scale, (r.y0 - sy0) * H * scale, (r.x1 - r.x0) * W * scale, (r.y1 - r.y0) * H * scale);
-    cv.hidden = false;
-  }
-
-  let fixing = false;
-  async function fixMove(k, san) {
-    if (fixing) return;
-    fixing = true;
-    $("ed-busy").hidden = false; $("ed-error").hidden = true;
-    let data;
-    try {
-      const resp = await fetch(API + "/api/redecode", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ header: header(), plies: state.plies, cells: state.cells || null, ply: k, san,
-          language: state.language || "de" }),
-      });
-      data = await resp.json();
-      if (!resp.ok) throw new Error((data && data.message) || resp.status);
-    } catch (e) {
-      fixing = false; $("ed-busy").hidden = true;
-      $("ed-error").textContent = t("fix_failed") + (e.message === "Failed to fetch" ? t("e_network") : e.message);
-      $("ed-error").hidden = false;
-      return;
-    }
-    fixing = false; $("ed-busy").hidden = true;
-    state.plies = data.plies; state.cells = data.cells; state.skipped_cells = data.skipped_cells; state.pgn = data.pgn;
-    if (currentId) {
-      const id = currentId;
-      DB.get(id).then((g) => {
-        if (!g) return;
-        Object.assign(g, { plies: data.plies, cells: data.cells, skipped_cells: data.skipped_cells, pgn: data.pgn, header: header() });
-        return saveGame(g);
-      }).catch(() => {});
-    }
-    computeFens();
-    // go on with the next doubtful move after this one (or stay here)
-    let next = state.plies.findIndex((p, i) => i > k && p.status === "doubtful");
-    if (next < 0) next = state.plies.findIndex((p) => p.status === "doubtful");
-    sel = next >= 0 ? next : k;
-    renderResult();
-    select(sel, true);
-  }
-
-  $("nav-first").onclick = () => select(-1);
-  $("nav-prev").onclick = () => select(sel - 1, true);
-  $("nav-next").onclick = () => select(sel + 1, true);
-  $("nav-last").onclick = () => select(state.plies.length - 1, true);
-  $("flip").onclick = () => { flipped = !flipped; renderBoard(); };
-  $("add-move").onclick = () => select(state.plies.length, false);
-  $("next-doubt").onclick = () => {
-    const ps = state.plies;
-    let i = ps.findIndex((p, j) => j > sel && p.status === "doubtful");
-    if (i < 0) i = ps.findIndex((p) => p.status === "doubtful");
-    if (i >= 0) select(i, true);
-  };
-  $("preview").onclick = () => $("preview").classList.toggle("zoom");
-  document.addEventListener("keydown", (e) => {
-    if ($("step-result").hidden || /INPUT|SELECT|TEXTAREA/.test((e.target || {}).tagName || "")) return;
-    if (e.key === "ArrowLeft") { select(sel - 1, true); e.preventDefault(); }
-    if (e.key === "ArrowRight") { select(sel + 1, true); e.preventDefault(); }
-  });
 
   // ---- Opening name: the server writes [ECO] and [Opening] (English) into the PGN;
   // here the family part is translated (docs/openings.js).
@@ -667,6 +398,18 @@
     if (!o) return;
     el.innerHTML = `<b>${esc(t("opening"))}:</b> ${esc(o.local)}${o.eco ? ` <span class="eco">${esc(o.eco)}</span>` : ""}` +
       (o.variation ? `<small>${esc(o.variation)}</small>` : "");
+  }
+
+  function showDetail(p, el) {
+    document.querySelectorAll(".m.sel").forEach((x) => x.classList.remove("sel"));
+    el.classList.add("sel");
+    const d = $("detail");
+    const n = Math.floor(p.ply / 2) + 1 + (p.ply % 2 ? "… " : ". ");
+    let html = `<b>${n}${esc(p.local)}</b> — ${esc(t(p.reason) || "")}`;
+    if (p.written) html += `<br>${esc(t("written"))}: «${esc(p.written)}»`;
+    if (p.alternatives && p.alternatives.length) html += `<br>${esc(t("alternatives"))}: ${p.alternatives.map(esc).join(", ")}`;
+    d.innerHTML = html;
+    d.hidden = false;
   }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }

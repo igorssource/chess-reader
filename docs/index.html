@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Partieformular-Leser</title>
-<link rel="stylesheet" href="style.css?v=20261113s2">
+<link rel="stylesheet" href="style.css?v=20261113r1">
 </head>
 <body>
 <header class="top">
@@ -105,54 +105,19 @@
       </div>
     </div>
 
-    <div class="card review">
+    <div class="card">
       <h2 data-t="moves"></h2>
       <p id="opening" class="opening" hidden></p>
-      <p class="hint review-hint" data-t="review_hint"></p>
       <p class="legend">
         <span class="m ok" data-t="l-ok"></span>
         <span class="m fixed" data-t="l-fixed"></span>
         <span class="m doubtful" data-t="l-doubtful"></span>
-        <span class="m ok user" data-t="l-user"></span>
       </p>
-      <!-- Stage 2: board + photo + moves; tap a move to check or fix it -->
-      <div class="review-grid">
-        <div class="r-board">
-          <div id="board" class="board" aria-label="board"></div>
-          <div class="nav">
-            <button class="btn small" id="nav-first" type="button" aria-label="start">⏮</button>
-            <button class="btn small" id="nav-prev" type="button" aria-label="back">◀</button>
-            <span id="nav-label" class="nav-label"></span>
-            <button class="btn small" id="nav-next" type="button" aria-label="forward">▶</button>
-            <button class="btn small" id="nav-last" type="button" aria-label="end">⏭</button>
-            <button class="btn small" id="flip" type="button" data-t="flip"></button>
-          </div>
-          <button class="btn primary next-doubt" id="next-doubt" type="button"></button>
-          <p id="all-checked" class="all-checked" data-t="all_checked" hidden></p>
-        </div>
-        <div class="r-edit">
-          <div id="editor" class="editor" hidden>
-            <div id="ed-title" class="ed-title"></div>
-            <canvas id="crop" class="crop" hidden></canvas>
-            <div id="ed-info" class="ed-info"></div>
-            <div id="ed-choices" class="choices"></div>
-            <details id="ed-all" class="all-moves">
-              <summary id="ed-all-sum"></summary>
-              <div id="ed-legal" class="legal"></div>
-            </details>
-            <p id="ed-busy" class="busy small" hidden><span class="spinner"></span><span data-t="fixing"></span></p>
-            <p id="ed-error" class="ed-error" hidden></p>
-          </div>
-          <div class="moves-wrap">
-            <table class="moves"><tbody id="moves"></tbody></table>
-            <button class="btn small add-move" id="add-move" type="button" data-t="add_move"></button>
-          </div>
-        </div>
-        <figure class="r-photo">
-          <img id="preview" class="preview" alt="">
-          <figcaption class="hint" data-t="photo_tap"></figcaption>
-        </figure>
+      <div class="split">
+        <img id="preview" class="preview" alt="">
+        <table class="moves"><tbody id="moves"></tbody></table>
       </div>
+      <div id="detail" class="detail" hidden></div>
       <p id="summary" class="hint"></p>
       <p id="admin-result" class="admin" hidden></p>
     </div>
@@ -169,10 +134,9 @@
   </section>
 </main>
 <footer data-t="footer"></footer>
-<script src="config.js?v=20261113s2"></script>
-<script src="vendor/chess.js?v=20261113s2"></script>
-<script src="openings.js?v=20261113s2"></script>
+<script src="config.js?v=20261113r1"></script>
+<script src="openings.js?v=20261113r1"></script>
 <!-- Bump ?v= on every change of css/js: phones cache these files and would mix a new page with old code. -->
-<script src="app.js?v=20261113s2"></script>
+<script src="app.js?v=20261113r1"></script>
 </body>
 </html>

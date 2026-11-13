@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import replace
 
 import chess
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -22,7 +23,7 @@ from chessreader.model import get_provider
 from chessreader.model.anthropic_provider import ModelError
 from chessreader.model.base import Image
 from chessreader.pgn_export import build_pgn
-from chessreader.pipeline import BudgetExhausted, process_game
+from chessreader.pipeline import BudgetExhausted, process_cascade, process_game
 from chessreader.sheet import Header
 
 from .kv import get_kv
@@ -63,6 +64,7 @@ def health():
     s = Settings()
     b = Budget(get_kv(), s)
     return {"ok": True, "notation": s.notation_language, "model": s.model_name,
+            "cascade": s.cascade_models,
             "max_calls_per_game": s.max_calls_per_game, "budget_left_today": b.remaining() > 0,
             "stores_photos": s.store_photos}
 
@@ -107,7 +109,12 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
 
     t0 = time.time()
     try:
-        outcome = process_game(images, get_provider(s), s, budget_ok=budget.ok, on_call=budget.add)
+        if not model and len(s.cascade_models) > 1:
+            # cheap model first, strong model only if the result looks unsure
+            outcome = process_cascade(images, lambda m: get_provider(replace(s, model_name=m)), s,
+                                      budget_ok=budget.ok, on_call=budget.add)
+        else:
+            outcome = process_game(images, get_provider(s), s, budget_ok=budget.ok, on_call=budget.add)
     except BudgetExhausted:
         return _err(429, "daily_limit", "daily limit reached")
     except ModelError as e:
@@ -115,9 +122,15 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
 
     r = outcome.result
     accuracy = compare(ref, [p.san for p in r.plies]) if ref else None
+    cost_by_model: dict = {}
+    for c in outcome.calls:
+        cost_by_model[c.model] = round(cost_by_model.get(c.model, 0.0) + c.cost_eur, 5)
+    models_used = list(cost_by_model)
+    route = "+".join(models_used) or s.model_name
     log_game(kv, {
         "id": game_id, "ts": int(t0), "seconds": round(time.time() - t0, 1),
-        "model": s.model_name, "calls": len(outcome.calls),
+        "model": route, "calls": len(outcome.calls), "escalated": outcome.escalated,
+        "cost_by_model": cost_by_model,
         "cost_eur": round(outcome.cost_eur, 5), "stopped": outcome.stopped_because,
         "plies": len(r.plies), "doubtful": sum(p.status == "doubtful" for p in r.plies),
         "fixed": sum(p.status == "fixed" for p in r.plies), "photos": [p for p in photo_refs if p],
@@ -133,8 +146,8 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         "model_calls": len(outcome.calls),
         "stopped_because": outcome.stopped_because,
         "language": s.notation_language,
-        **({"admin": {"model": s.model_name, "cost_eur": round(outcome.cost_eur, 4),
-                      "models_used": sorted({c.model for c in outcome.calls}),
+        **({"admin": {"model": route, "cost_eur": round(outcome.cost_eur, 4),
+                      "models_used": models_used, "escalated": outcome.escalated,
                       "accuracy": accuracy}} if is_admin else {}),
     }
 

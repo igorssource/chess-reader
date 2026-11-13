@@ -35,3 +35,32 @@ def test_same_answer_is_not_repeated():
     prov = FakeProvider(Settings(), reading, recheck_answers={})   # model has nothing new
     out = process_game([], prov, Settings(max_calls_per_game=10))
     assert len(out.calls) == 2                                    # one re-ask, then stop
+
+
+def _cascade(cheap_reading, strong_reading):
+    from dataclasses import replace
+    from chessreader.pipeline import process_cascade
+    s = Settings(max_calls_per_game=10)
+    s.cascade_models = ["cheap", "strong"]
+    readings = {"cheap": cheap_reading, "strong": strong_reading}
+    return process_cascade([], lambda m: FakeProvider(replace(s, model_name=m), readings[m]), s)
+
+
+def test_cascade_keeps_clean_cheap_result():
+    truth = GAMES[0].split()[:20]
+    good = GameReading(sheets=[Sheet(plies=write_german(truth))])
+    out = _cascade(good, good)
+    assert not out.escalated and {c.model for c in out.calls} == {"cheap"}
+    assert [p.san for p in out.result.plies] == truth
+
+
+def test_cascade_escalates_unsure_cheap_result():
+    truth = GAMES[0].split()[:20]
+    bad = write_german(truth)
+    for k in (4, 7, 10, 13):
+        bad[k].text = "Xz9"                    # unreadable cells
+    out = _cascade(GameReading(sheets=[Sheet(plies=bad)]),
+                   GameReading(sheets=[Sheet(plies=write_german(truth))]))
+    assert out.escalated and [c.model for c in out.calls][-1] == "strong"
+    assert len(out.calls) <= 10
+    assert [p.san for p in out.result.plies] == truth

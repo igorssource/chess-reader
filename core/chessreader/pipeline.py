@@ -7,7 +7,7 @@ Protection against endless ping-pong between the model and the chess check:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 import chess
@@ -27,6 +27,7 @@ class GameOutcome:
     pgn: str
     calls: list[ModelCall] = field(default_factory=list)
     stopped_because: str = ""          # "", "call_cap", "budget"
+    escalated: bool = False            # cascade: the cheap result was unsure, strong model re-read
 
     @property
     def cost_eur(self) -> float:
@@ -94,3 +95,58 @@ def _next_doubtful(result: DecodeResult, tokens, asked):
 
 class BudgetExhausted(Exception):
     pass
+
+
+# ---- Cascade: a cheap model first, the strong model only when the sheet looks hard.
+
+def problem_score(outcome: GameOutcome) -> dict:
+    """How unsure the result is: share of moves that were auto-corrected or need a check."""
+    plies = outcome.result.plies
+    n = len(plies)
+    doubtful = sum(p.status == "doubtful" for p in plies)
+    fixed = sum(p.status == "fixed" for p in plies)
+    skipped = len(outcome.result.skipped_tokens)
+    share = (doubtful + fixed + skipped) / max(n, 1)
+    return {"plies": n, "doubtful": doubtful, "fixed": fixed, "skipped": skipped, "share": round(share, 3)}
+
+
+def needs_strong_model(outcome: GameOutcome, settings: Settings) -> bool:
+    sc = problem_score(outcome)
+    return (outcome.stopped_because == "call_cap"      # cheap model could not settle its doubts
+            or sc["plies"] < settings.cascade_min_plies
+            or sc["share"] > settings.cascade_max_problem_share
+            or sc["doubtful"] >= settings.cascade_max_doubtful)
+
+
+def process_cascade(images: list[Image], make_provider: Callable[[str], ModelProvider], settings: Settings,
+                    budget_ok: Callable[[], bool] = lambda: True,
+                    on_call: Callable[[ModelCall], None] = lambda c: None) -> GameOutcome:
+    """Read with settings.cascade_models[0]; if the result looks unsure, read again with the
+    next model. The per-game call cap counts the calls of all models together."""
+    models = settings.cascade_models
+    total_cap = settings.max_calls_per_game
+    used: list[ModelCall] = []
+    best: GameOutcome | None = None
+    escalated = False
+    for i, model in enumerate(models):
+        last = i == len(models) - 1
+        left = total_cap - len(used)
+        if left <= 0:
+            break
+        cap = left if last else min(left, settings.cascade_cheap_max_calls)
+        stage = replace(settings, model_name=model, max_calls_per_game=cap)
+        try:
+            out = process_game(images, make_provider(model), stage, budget_ok, on_call)
+        except BudgetExhausted:
+            if best is None:
+                raise
+            break
+        used += out.calls
+        if best is None or problem_score(out)["share"] <= problem_score(best)["share"]:
+            best = out
+        if last or not needs_strong_model(out, settings):
+            break
+        escalated = True
+    best.calls = used
+    best.escalated = escalated
+    return best

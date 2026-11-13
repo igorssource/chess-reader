@@ -31,7 +31,7 @@ class Settings:
     model_name: str = field(default_factory=lambda: _env("MODEL_NAME", "claude-sonnet-5-5"))
     model_effort: str = field(default_factory=lambda: _env("MODEL_EFFORT", "medium"))
     max_calls_per_game: int = field(default_factory=lambda: _env("MAX_CALLS_PER_GAME", 10, int))
-    daily_budget_eur: float = field(default_factory=lambda: _env("DAILY_BUDGET_EUR", 1.0, float))
+    daily_budget_eur: float = field(default_factory=lambda: _env("DAILY_BUDGET_EUR", 2.0, float))  # 2026-11-13: raised from 1.0 for the accuracy run; set back to 1.0 later
     usd_to_eur: float = field(default_factory=lambda: _env("USD_TO_EUR", 0.95, float))
     store_photos: bool = field(default_factory=lambda: _env("STORE_PHOTOS", True, _bool))
     pgn_comments_language: str = field(default_factory=lambda: _env("PGN_COMMENTS_LANGUAGE", "de"))

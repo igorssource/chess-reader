@@ -22,6 +22,8 @@
       header: "Partiedaten", white: "Weiß", black: "Schwarz", event: "Turnier", site: "Ort", date: "Datum", round: "Runde", result: "Ergebnis",
       moves: "Züge", "l-ok": "sicher", "l-fixed": "automatisch korrigiert", "l-doubtful": "bitte prüfen",
       download: "PGN herunterladen", copy: "PGN kopieren", copied: "Kopiert", again: "Neues Formular",
+      history: "Meine Partien", history_hint: "Gespeichert nur in diesem Browser auf diesem Gerät.",
+      open: "Öffnen", del: "Löschen", del_sure: "Wirklich löschen?", last: "zuletzt", unnamed: "Partie ohne Namen",
       lichess: "In Lichess öffnen", lichess_busy: "Lichess wird geöffnet …",
       lichess_failed: "Lichess hat die Partie gerade nicht angenommen (vielleicht zu viele Uploads). Die PGN ist kopiert: auf der geöffneten Lichess-Seite einfügen.",
       footer: "STRATEG Stuttgart · Partieformular-Leser",
@@ -47,6 +49,8 @@
       header: "Данные партии", white: "Белые", black: "Чёрные", event: "Турнир", site: "Место", date: "Дата", round: "Тур", result: "Результат",
       moves: "Ходы", "l-ok": "уверенно", "l-fixed": "исправлено автоматически", "l-doubtful": "проверьте",
       download: "Скачать PGN", copy: "Копировать PGN", copied: "Скопировано", again: "Новый бланк",
+      history: "Мои партии", history_hint: "Хранятся только в этом браузере на этом устройстве.",
+      open: "Открыть", del: "Удалить", del_sure: "Точно удалить?", last: "последняя", unnamed: "Партия без названия",
       lichess: "Открыть в Lichess", lichess_busy: "Открываю Lichess …",
       lichess_failed: "Lichess сейчас не принял партию (возможно, слишком много загрузок подряд). PGN скопирован: вставьте его на открывшейся странице Lichess.",
       footer: "STRATEG Stuttgart · распознаватель бланков",
@@ -63,6 +67,47 @@
   let lang = pick(localGet("lang") || (navigator.language || "de").slice(0, 2));
   let state = null;   // last server result
   let photos = [];    // selected photos: [{blob, url}], sent only after the user confirms
+  let currentId = null;  // id of the shown game in the browser history (IndexedDB)
+  let resultPhotoUrl = null;
+
+  // ---- History: every recognised game is kept in this browser (IndexedDB), so it
+  // survives closing the browser and needs no new upload (no extra cost).
+  const DB = (() => {
+    let dbp = null;
+    function open() {
+      if (!dbp) dbp = new Promise((res, rej) => {
+        if (!window.indexedDB) return rej(new Error("no indexedDB"));
+        const r = indexedDB.open("chess-reader", 1);
+        r.onupgradeneeded = () => r.result.createObjectStore("games", { keyPath: "id" });
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      return dbp;
+    }
+    async function run(mode, fn) {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction("games", mode);
+        const req = fn(tx.objectStore("games"));
+        tx.oncomplete = () => res(req && req.result);
+        tx.onerror = tx.onabort = () => rej(tx.error);
+      });
+    }
+    return {
+      put: (g) => run("readwrite", (st) => st.put(g)),
+      get: (id) => run("readonly", (st) => st.get(id)),
+      all: () => run("readonly", (st) => st.getAll()),
+      del: (id) => run("readwrite", (st) => st.delete(id)),
+    };
+  })();
+
+  async function saveGame(g) {
+    try { await DB.put(g); }
+    catch (e) {
+      // Some browsers refuse to store photos: keep the game without its photo.
+      try { const c = Object.assign({}, g); delete c.photo; await DB.put(c); } catch (e2) { /* storage unavailable */ }
+    }
+  }
   const $ = (id) => document.getElementById(id);
 
   function pick(l) { return T[l] ? l : "de"; }
@@ -80,6 +125,7 @@
     document.title = t("title");
     if (state) renderResult();
     renderSelected();
+    renderHistory();
   }
 
   function show(step) {
@@ -153,7 +199,7 @@
   // Step 2: the user confirmed. Send all selected photos to the server.
   async function send() {
     if (!photos.length) return;
-    $("preview-busy").src = photos[0].url; $("preview").src = photos[0].url;
+    $("preview-busy").src = photos[0].url; $("preview").src = photos[0].url; $("preview").hidden = false;
     show("step-busy");
     const form = new FormData();
     photos.forEach((p, i) => form.append("files", p.blob, `sheet-${i + 1}.jpg`));
@@ -172,9 +218,84 @@
       return fail(t("e_other") + (data && (data.message || data.detail) || resp.status));
     }
     state = data;
+    currentId = String(Date.now());
+    await saveGame({ id: currentId, created: Date.now(), header: data.header, plies: data.plies, pgn: data.pgn,
+      skipped_cells: data.skipped_cells || [], photo: photos[0].blob });
     fillHeader(data.header);
     renderResult();
     show("step-result");
+  }
+
+  async function openGame(id) {
+    let g;
+    try { g = await DB.get(id); } catch (e) { return; }
+    if (!g) return;
+    currentId = g.id;
+    state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells };
+    if (resultPhotoUrl) URL.revokeObjectURL(resultPhotoUrl);
+    resultPhotoUrl = g.photo ? URL.createObjectURL(g.photo) : null;
+    $("preview").hidden = !resultPhotoUrl;
+    if (resultPhotoUrl) $("preview").src = resultPhotoUrl;
+    fillHeader(g.header);
+    renderResult();
+    show("step-result");
+  }
+
+  // Header edits are saved too, so the corrected names stay with the game.
+  let saveTimer = null;
+  function saveHeaderSoon() {
+    if (!currentId) return;
+    clearTimeout(saveTimer);
+    const id = currentId, h = header();
+    saveTimer = setTimeout(async () => {
+      try { const g = await DB.get(id); if (g) { g.header = h; await saveGame(g); } } catch (e) { /* ignore */ }
+    }, 400);
+  }
+
+  function gameTitle(h) {
+    const w = h.white && h.white !== "?" ? h.white : "", b = h.black && h.black !== "?" ? h.black : "";
+    return w || b ? `${w || "?"} – ${b || "?"}` : t("unnamed");
+  }
+
+  async function renderHistory() {
+    let games = [];
+    try { games = await DB.all(); } catch (e) { /* no storage */ }
+    games.sort((a, b) => b.created - a.created);
+    $("history").hidden = !games.length;
+    const list = $("history-list");
+    list.querySelectorAll("img").forEach((i) => URL.revokeObjectURL(i.src));
+    list.innerHTML = "";
+    games.forEach((g, i) => {
+      const li = document.createElement("li");
+      li.className = "game";
+      const thumb = document.createElement(g.photo ? "img" : "div");
+      thumb.className = "gthumb";
+      if (g.photo) { thumb.src = URL.createObjectURL(g.photo); thumb.alt = ""; }
+      const info = document.createElement("button");
+      info.type = "button"; info.className = "ginfo";
+      const h = g.header || {};
+      const meta = [h.result && h.result !== "*" ? h.result : "", h.event && h.event !== "?" ? h.event : "",
+        new Date(g.created).toLocaleString(lang === "ru" ? "ru-RU" : "de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })]
+        .filter(Boolean).join(" · ");
+      info.innerHTML = `<b>${esc(gameTitle(h))}</b>${i === 0 ? ` <span class="tag">${esc(t("last"))}</span>` : ""}<small>${esc(meta)}</small>`;
+      info.title = t("open");
+      info.onclick = () => openGame(g.id);
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "gdel"; del.textContent = "🗑"; del.title = t("del"); del.setAttribute("aria-label", t("del"));
+      // Two taps to delete (no pop-up dialog): first tap asks, second deletes.
+      del.onclick = async () => {
+        if (!del.classList.contains("sure")) {
+          del.classList.add("sure"); del.textContent = t("del_sure");
+          setTimeout(() => { del.classList.remove("sure"); del.textContent = "🗑"; }, 3000);
+          return;
+        }
+        try { await DB.del(g.id); } catch (e) { /* ignore */ }
+        if (currentId === g.id) currentId = null;
+        renderHistory();
+      };
+      li.append(thumb, info, del);
+      list.appendChild(li);
+    });
   }
 
   function fail(msg) { $("error-text").textContent = msg; show("step-error"); }
@@ -235,13 +356,20 @@
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
   async function currentPgn() {
-    const resp = await fetch(API + "/api/pgn", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ header: header(), moves: state.plies }),
-    });
-    const data = await resp.json();
-    $("pgn").textContent = data.pgn;
-    return data.pgn;
+    try {
+      const resp = await fetch(API + "/api/pgn", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ header: header(), moves: state.plies }),
+      });
+      const data = await resp.json();
+      if (!data.pgn) throw new Error("no pgn");
+      $("pgn").textContent = data.pgn;
+      state.pgn = data.pgn;
+      if (currentId) { const id = currentId; DB.get(id).then((g) => { if (g) { g.pgn = data.pgn; g.header = header(); return saveGame(g); } }).catch(() => {}); }
+      return data.pgn;
+    } catch (e) {
+      return state.pgn;   // offline: the PGN saved with the game
+    }
   }
 
   $("download").onclick = async () => {
@@ -282,13 +410,14 @@
     }
   };
   // New sheet: forget everything. After an error: keep the photo so it can be sent again.
-  $("again").onclick = () => { state = null; clearPhotos(); renderSelected(); show("step-upload"); };
+  $("again").onclick = () => { state = null; currentId = null; clearPhotos(); renderSelected(); renderHistory(); show("step-upload"); };
   $("again-error").onclick = () => { state = null; renderSelected(); show("step-upload"); };
   $("camera").onchange = (e) => addPhoto(e.target.files[0]);
   $("file").onchange = (e) => addPhoto(e.target.files[0]);
   $("send").onclick = send;
   $("replace").onclick = () => { clearPhotos(); renderSelected(); };
   document.querySelectorAll(".lang button").forEach((b) => (b.onclick = () => { lang = b.dataset.lang; localSet("lang", lang); applyLang(); }));
+  document.querySelectorAll(".grid input, .grid select").forEach((el) => el.addEventListener("input", saveHeaderSoon));
   applyLang();
   show("step-upload");
 })();

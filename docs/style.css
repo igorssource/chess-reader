@@ -45,7 +45,7 @@ main { max-width: 960px; margin: 0 auto; padding: 0 16px 24px; }
 .steps li.now { color: var(--text); border-color: var(--accent); font-weight: 600; }
 .steps li.now .dot { background: var(--accent); color: #fff; }
 .steps li.done .dot { background: var(--ok); color: #fff; }
-@media (max-width: 420px) { .steps li { justify-content: center; } .steps li span:not(.dot) { display: none; } .steps li.now span { display: inline; } }
+@media (max-width: 420px) { .steps li { justify-content: center; } .steps li span:not(.dot) { display: none; } .steps li.now span:not(.dot) { display: inline; } }
 
 /* Cards */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
@@ -105,3 +105,14 @@ table.moves td.n { color: var(--muted); width: 2.5em; text-align: right; }
 [hidden] { display: none !important; }
 footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 16px; }
 @media (max-width: 420px) { h1 { font-size: 1.1rem; } .logo { width: 42px; height: 42px; font-size: 26px; } }
+
+/* History of games kept in this browser */
+.games { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.game { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.gthumb { flex: none; width: 48px; height: 60px; border-radius: 8px; object-fit: cover; background: var(--line); }
+.ginfo { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 4px 0; color: var(--text); font: inherit; cursor: pointer; }
+.ginfo b { overflow-wrap: anywhere; }
+.ginfo small { display: block; color: var(--muted); font-size: .82rem; }
+.tag { display: inline-block; font-size: .72rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); vertical-align: middle; }
+.gdel { flex: none; min-width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; font: inherit; font-size: .85rem; padding: 0 8px; }
+.gdel.sure { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }

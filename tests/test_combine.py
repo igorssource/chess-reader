@@ -135,3 +135,24 @@ def test_clear_opponent_move_wins_over_unsure_one():
     mine[5].text, mine[5].confidence = "Lf5", 0.3          # 3... Bg4 misread, legal, unsure
     both = decode(build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=cells(SANS, "en"), role="opponent", image=1)]), "de"), "de")
     assert both.plies[5].san == "Bg4"
+
+
+def test_shifted_opponent_record_gives_no_false_confirmation():
+    # the opponent forgot White's 7th move: by move NUMBER his record is one move off.
+    mine = cells(SANS)
+    mine[12].text, mine[12].confidence = "Db3", 0.4      # 7. Qb3, unsure but fits
+    opp = cells(SANS, "en")
+    del opp[12]
+    for k, c in enumerate(opp):
+        c.number, c.color = k // 2 + 1, "wb"[k % 2]
+    r = decode(build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=opp, role="opponent", image=1)]), "de"), "de")
+    assert [p.san for p in r.plies] == SANS
+
+
+def test_sheets_disagree_is_never_green():
+    mine = cells(SANS)
+    opp = cells(SANS, "en")
+    opp[-1].text = "Rd7"                                 # last move: Rd8# here, Rd7 there; both legal
+    r = decode(build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=opp, role="opponent", image=1)]), "de"), "de")
+    assert r.plies[-1].san == "Rd8#"
+    assert r.plies[-1].status == "doubtful" and "Td7" in r.plies[-1].alternatives

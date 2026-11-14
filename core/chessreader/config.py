@@ -42,6 +42,10 @@ class Settings:
     cascade_max_doubtful: int = field(default_factory=lambda: _env("CASCADE_MAX_DOUBTFUL", 3, int))
     cascade_min_plies: int = field(default_factory=lambda: _env("CASCADE_MIN_PLIES", 10, int))
     cascade_cheap_max_calls: int = field(default_factory=lambda: _env("CASCADE_CHEAP_MAX_CALLS", 3, int))
+    # Time for one game. The host (Vercel) cuts a request off at 300 s; stay well below.
+    time_limit_seconds: float = field(default_factory=lambda: _env("TIME_LIMIT_SECONDS", 240, float))
+    recheck_reserve_seconds: float = field(default_factory=lambda: _env("RECHECK_RESERVE_SECONDS", 40, float))
+    escalate_reserve_seconds: float = field(default_factory=lambda: _env("ESCALATE_RESERVE_SECONDS", 150, float))
     # Re-read a doubtful move on a zoomed crop of its cell (from the full-size photo).
     recheck_crop: bool = field(default_factory=lambda: _env("RECHECK_CROP", True, _bool))
     pgn_comments_language: str = field(default_factory=lambda: _env("PGN_COMMENTS_LANGUAGE", "de"))

@@ -109,3 +109,15 @@ def test_opponent_sheet_reduces_doubts():
     both = decode(build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=cells(SANS, "en"), role="opponent", image=1)]), "de"), "de")
     doubts = lambda r: sum(p.status != "ok" for p in r.plies)
     assert doubts(both) == 0 < doubts(alone)
+
+
+def test_no_recheck_when_time_runs_short():
+    import time
+    from chessreader.model.fake import demo_reading
+    r = demo_reading()
+    r.sheets[0].plies[2].confidence = 0.3
+    r.sheets[0].plies[2].text = "Sc3"
+    prov = FakeProvider(Settings(), reading=r)
+    s = Settings(); s.model_provider = "fake"
+    out = process_game([Image(b"a")], prov, s, deadline=time.monotonic() + 10)   # less than the reserve
+    assert prov.calls == 1 and out.stopped_because == "time"

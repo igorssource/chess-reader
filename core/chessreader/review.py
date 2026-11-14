@@ -42,6 +42,39 @@ def cells_from_plies(plies: list[dict]) -> tuple[list[RawPly], list[dict]]:
     return cells, out
 
 
+def move_from_text(plies: list[dict], k: int, text: str, language: str = "de"):
+    """A move typed or tapped by a person ("Thd1", "Sf3", "e4") at half-move k -> SAN.
+    Raises ReviewError with up to 6 similar legal moves when it does not fit exactly one."""
+    from . import similarity
+    lang = notation.LANGUAGES[language]
+    board = _board(plies, k)
+    parsed = notation.parse(text, lang)
+    found = notation.matches(board, parsed) if parsed else []
+    if len(found) == 1:
+        return board.san(found[0])
+    legal = list(board.legal_moves)
+    if found:
+        options = [notation.render(board, m, lang) for m in found]
+    else:
+        w = notation.clean(text)
+        scored = sorted(legal, key=lambda m: min(similarity.distance(w, notation.render(board, m, lang)),
+                                                  similarity.distance(w, notation.render_long(board, m, lang))))
+        options = [notation.render(board, m, lang) for m in scored[:6]]
+    err = ReviewError("ambiguous move" if found else "not a legal move here")
+    err.options = options
+    raise err
+
+
+def _board(plies, k):
+    board = chess.Board()
+    for j, p in enumerate(plies[:k]):
+        try:
+            board.push_san(p["san"])
+        except (ValueError, KeyError):
+            raise ReviewError(f"illegal move at ply {j + 1}")
+    return board
+
+
 def redecode(cells: list[RawPly], plies: list[dict], k: int, san: str, language: str = "de"):
     """Pin move `san` at half-move `k` and decode everything after it again.
 

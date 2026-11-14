@@ -69,3 +69,13 @@ def test_illegal_choice():
     r = client.post("/api/redecode", json={"header": d["header"], "plies": d["plies"], "cells": d["cells"],
                                            "ply": 0, "san": "e5"})
     assert r.status_code == 400
+
+
+def test_fix_by_text_and_suggestions():
+    d = _process()
+    r = client.post("/api/redecode", json={"header": d["header"], "plies": d["plies"], "cells": d["cells"],
+                                           "ply": 1, "text": "e6"})
+    assert r.status_code == 200 and r.json()["plies"][1]["san"] == "e6"
+    r = client.post("/api/redecode", json={"header": d["header"], "plies": d["plies"], "cells": d["cells"],
+                                           "ply": 2, "text": "Sf4"})
+    assert r.status_code == 400 and "Sf3" in r.json()["options"]

@@ -38,6 +38,8 @@
       e_daily_limit: "Das Tageslimit ist erreicht. Bitte versuche es morgen wieder.",
       e_model_error: "Das Formular konnte nicht gelesen werden: ", e_network: "Keine Verbindung zum Server.",
       e_too_large: "Das Foto ist zu groß.", e_other: "Fehler: ",
+      tap_hint: "Tippe auf einen Zug, um ihn zu korrigieren.", user: "Von dir bestätigt.", fix_ok: "stimmt", fix_ph: "anderer Zug, z. B. Thd1", fix_go: "OK",
+      undo: "↶ Letzte Korrektur rückgängig", did_you_mean: "Meintest du:", fixing: "Rest der Partie wird neu berechnet …", fix_failed: "Hat nicht geklappt: ",
     },
     ru: {
       title: "Бланк партии → PGN",
@@ -66,6 +68,8 @@
       e_daily_limit: "Дневной лимит исчерпан. Попробуйте завтра.",
       e_model_error: "Не удалось прочитать бланк: ", e_network: "Нет связи с сервером.",
       e_too_large: "Фото слишком большое.", e_other: "Ошибка: ",
+      tap_hint: "Нажмите на ход, чтобы исправить его.", user: "Подтверждено вами.", fix_ok: "верно", fix_ph: "другой ход, напр. Thd1", fix_go: "OK",
+      undo: "↶ Отменить последнее исправление", did_you_mean: "Может быть:", fixing: "Пересчитываю остаток партии …", fix_failed: "Не получилось: ",
     },
   };
 
@@ -233,8 +237,10 @@
     state = data;
     currentId = String(Date.now());
     await saveGame({ id: currentId, created: Date.now(), header: data.header, plies: data.plies, pgn: data.pgn,
-      skipped_cells: data.skipped_cells || [], photo: photos[0].blob });
+      skipped_cells: data.skipped_cells || [], cells: data.cells || null, language: data.language || "de",
+      photo: photos[0].blob });
     fillHeader(data.header);
+    undoState = null; $("undo").hidden = true;
     renderResult();
     showAdminResult(data.admin);
     show("step-result");
@@ -274,12 +280,14 @@
     if (!g) return;
     $("admin-result").hidden = true;
     currentId = g.id;
-    state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells };
+    state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells,
+      cells: g.cells || null, language: g.language || "de" };
     if (resultPhotoUrl) URL.revokeObjectURL(resultPhotoUrl);
     resultPhotoUrl = g.photo ? URL.createObjectURL(g.photo) : null;
     $("preview").hidden = !resultPhotoUrl;
     if (resultPhotoUrl) $("preview").src = resultPhotoUrl;
     fillHeader(g.header);
+    undoState = null; $("undo").hidden = true;
     renderResult();
     show("step-result");
   }
@@ -367,9 +375,11 @@
       [plies[i], plies[i + 1]].forEach((p, j) => {
         if (!p) return;
         const s = document.createElement("span");
-        s.className = "m " + p.status;
+        s.className = "m " + p.status + (p.reason === "user" ? " user" : "");
+        s.dataset.ply = p.ply;
         s.textContent = p.local;
-        s.tabIndex = p.status === "ok" ? -1 : 0;
+        s.tabIndex = 0;
+        s.onkeydown = (e) => { if (e.key === "Enter") showDetail(p, s); };
         s.onclick = () => showDetail(p, s);
         tr.children[j + 1].appendChild(s);
       });
@@ -381,7 +391,7 @@
     if (state.skipped_cells && state.skipped_cells.length)
       sum += " · " + t("skipped")(state.skipped_cells.map((c) => `${c.number || "?"}${c.color === "b" ? "…" : "."} ${c.text}`).join(", "));
     $("summary").textContent = sum;
-    $("detail").hidden = true;
+    DETAIL.hidden = true;
     $("pgn").textContent = state.pgn;
     showOpening();
   }
@@ -407,16 +417,123 @@
       (o.variation ? `<small>${esc(o.variation)}</small>` : "");
   }
 
+  // Detail of one move, shown right under its row: what was written, and a quick fix:
+  // tap "correct" or another reading, or type the move. The server then decodes the
+  // rest of the game again (no model call, free).
+  const DETAIL = $("detail");
+  let detailPly = -1;
+
   function showDetail(p, el) {
     document.querySelectorAll(".m.sel").forEach((x) => x.classList.remove("sel"));
     el.classList.add("sel");
-    const d = $("detail");
+    detailPly = p.ply;
     const n = Math.floor(p.ply / 2) + 1 + (p.ply % 2 ? "… " : ". ");
-    let html = `<b>${n}${esc(p.local)}</b> — ${esc(t(p.reason) || "")}`;
+    const reason = p.reason === "user" ? t("user") : t(p.reason) || "";
+    let html = `<div><b>${n}${esc(p.local)}</b> — ${esc(reason)}`;
     if (p.written) html += `<br>${esc(t("written"))}: «${esc(p.written)}»`;
-    if (p.alternatives && p.alternatives.length) html += `<br>${esc(t("alternatives"))}: ${p.alternatives.map(esc).join(", ")}`;
-    d.innerHTML = html;
-    d.hidden = false;
+    html += `</div><div class="fix-chips"></div>
+      <form class="fix-form"><input class="fix-text" autocomplete="off" autocapitalize="off" spellcheck="false"
+        placeholder="${esc(t("fix_ph"))}" aria-label="${esc(t("fix_ph"))}"><button class="btn small" type="submit">${esc(t("fix_go"))}</button></form>
+      <p class="fix-msg" hidden></p><div class="fix-options" hidden></div>`;
+    DETAIL.innerHTML = html;
+    const chips = DETAIL.querySelector(".fix-chips");
+    if (p.reason !== "user") chips.appendChild(chip(`✓ ${p.local} ${t("fix_ok")}`, { san: p.san }, "ok"));
+    (p.alternatives || []).forEach((a) => chips.appendChild(chip(a, { text: a })));
+    DETAIL.querySelector(".fix-form").onsubmit = (e) => {
+      e.preventDefault();
+      const v = DETAIL.querySelector(".fix-text").value.trim();
+      if (v) fixMove(p.ply, { text: v });
+    };
+    // put the box right under the row of this move (phones: no scrolling to the bottom)
+    const tr = el.closest("tr");
+    let row = DETAIL.closest("tr.detail-row");
+    if (!row) {
+      row = document.createElement("tr");
+      row.className = "detail-row";
+      row.appendChild(document.createElement("td")).colSpan = 3;
+    }
+    row.firstChild.appendChild(DETAIL);
+    tr.after(row);
+    DETAIL.hidden = false;
+    if (fixing) busy(true);
+  }
+
+  // While the server recalculates: show it and block more taps (a second fix would use old moves)
+  function busy(on) {
+    DETAIL.classList.toggle("busy-fix", on);
+    DETAIL.querySelectorAll("button, input").forEach((x) => (x.disabled = on));
+    const msg = DETAIL.querySelector(".fix-msg");
+    if (msg && on) { msg.hidden = false; msg.className = "fix-msg"; msg.textContent = t("fixing"); }
+  }
+
+  function chip(label, move, cls) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip " + (cls || ""); b.textContent = label;
+    b.onclick = () => fixMove(detailPly, move);
+    return b;
+  }
+
+  // One step back after a fix (a wrong choice can change the rest of the game a lot).
+  let undoState = null;
+  function applyMoves(data) {
+    Object.assign(state, { plies: data.plies, cells: data.cells, skipped_cells: data.skipped_cells, pgn: data.pgn });
+    if (currentId) {
+      const id = currentId;
+      DB.get(id).then((g) => {
+        if (!g) return;
+        Object.assign(g, { plies: data.plies, cells: data.cells, skipped_cells: data.skipped_cells, pgn: data.pgn, header: header() });
+        return saveGame(g);
+      }).catch(() => {});
+    }
+    renderResult();
+    $("undo").hidden = !undoState;
+  }
+  $("undo").onclick = () => {
+    if (!undoState || fixing) return;
+    const u = undoState;
+    undoState = null;
+    applyMoves(u);
+  };
+
+  let fixing = false;
+  async function fixMove(k, move) {
+    if (fixing) return;
+    fixing = true;
+    DETAIL.querySelector(".fix-options").hidden = true;
+    busy(true);
+    let resp, data;
+    try {
+      resp = await fetch(API + "/api/redecode", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ header: header(), plies: state.plies, cells: state.cells || null,
+          ply: k, language: state.language || "de" }, move)),
+      });
+      data = await resp.json();
+    } catch (e) {
+      data = null;
+    }
+    fixing = false;
+    busy(false);
+    if (!resp || !data || !resp.ok) {
+      if (detailPly !== k || DETAIL.hidden) return;   // the person already looks at another move
+      const msg = DETAIL.querySelector(".fix-msg"), opts = DETAIL.querySelector(".fix-options");
+      msg.className = "fix-msg bad"; msg.hidden = false;
+      msg.textContent = t("fix_failed") + (!data ? t("e_network") : data.message || resp.status);
+      if (data && data.options && data.options.length) {
+        msg.textContent = t("did_you_mean");
+        msg.className = "fix-msg";
+        opts.innerHTML = "";
+        data.options.forEach((o) => opts.appendChild(chip(o, { text: o })));
+        opts.hidden = false;
+      }
+      return;
+    }
+    undoState = { plies: state.plies, cells: state.cells, skipped_cells: state.skipped_cells, pgn: state.pgn };
+    applyMoves(data);
+    // go on with the next move that needs a look, if there is one
+    const next = state.plies.find((p) => p.ply > k && p.status === "doubtful");
+    const el = next && document.querySelector(`#moves .m[data-ply="${next.ply}"]`);
+    if (el) showDetail(next, el);
   }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }

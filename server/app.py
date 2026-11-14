@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from chessreader.combine import detect_language
 from chessreader.config import MODEL_PRICES_USD, Settings
 from chessreader.decoder import DecodedPly, DecodeResult
 from chessreader.model import get_provider
@@ -152,6 +153,10 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         # kept by the page with the game, so a fixed move can be decoded again without the model
         "cells": cells_to_dicts(outcome.tokens),
         "layout": outcome.reading.sheets[0].layout if outcome.reading.sheets else [],
+        # which photo is what (shown on the page with two photos)
+        "sheets": [{"image": sh.image, "role": sh.role, "cells": len(sh.plies),
+                    "language": detect_language(sh, sh.language if sh.language in ("de", "en") else s.notation_language)}
+                   for sh in outcome.reading.sheets],
         "model_calls": len(outcome.calls),
         "stopped_because": outcome.stopped_because,
         "language": s.notation_language,

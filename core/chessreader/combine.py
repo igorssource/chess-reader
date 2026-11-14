@@ -77,11 +77,18 @@ def build_tokens(reading: GameReading, language: str) -> list[RawPly]:
     mains = [s for s in reading.sheets if s.role != "opponent"]
     opps = [s for s in reading.sheets if s.role == "opponent"]
     if not opps:
-        return flatten(reading)
+        # one record (maybe with a continuation page): each sheet may use English or
+        # German letters; everything is brought to the main notation language
+        toks = flatten(reading)
+        langs = {sh.image: detect_language(sh, sh.language if sh.language in notation.LANGUAGES else language)
+                 for sh in mains}
+        return [_to_language(t, langs.get(t.sheet, language), language) for t in toks]
     records = [GameReading(reading.header, mains)] + [GameReading(reading.header, [replace(s, role="main")]) for s in opps]
     decoded = []
     for rec in records:
-        lang = detect_language(rec.sheets[0], language)
+        # letters on the paper decide; the model's own guess breaks a tie
+        sheet_lang = rec.sheets[0].language if rec.sheets[0].language in notation.LANGUAGES else language
+        lang = detect_language(rec.sheets[0], sheet_lang)
         toks = flatten(rec)
         decoded.append((rec, lang, toks, decode(toks, lang)))
     decoded.sort(key=lambda d: _problems(d[3]))
@@ -109,6 +116,11 @@ def build_tokens(reading: GameReading, language: str) -> list[RawPly]:
                 if pp.san == sp.san:
                     if sure:
                         tok.confidence = max(tok.confidence, 0.95)
+                elif src is not None and sure and pp.status != "ok":
+                    # the other sheet is clear here, this one is not: trust the clear one
+                    old = tok.text
+                    tok.text, tok.confidence = local, max(0.7, min(src.confidence, 0.9))
+                    tok.alternatives = [x for x in [old] + tok.alternatives if x != local]
                 elif src is not None and local not in tok.alternatives:
                     tok.alternatives = [local] + tok.alternatives
             elif src is not None:

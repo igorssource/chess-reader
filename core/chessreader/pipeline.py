@@ -64,10 +64,12 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
 
     asked: set[int] = set()
     while True:
-        target = _next_doubtful(result, tokens, asked)
-        if target is None:
+        # up to `recheck_parallel` doubtful cells are re-read at the same time
+        targets = _doubtful_targets(result, tokens, asked, settings.recheck_parallel)
+        if not targets:
             break
-        if len(calls) >= settings.max_calls_per_game:
+        room = settings.max_calls_per_game - len(calls)
+        if room <= 0:
             stopped = "call_cap"
             break
         if not budget_ok():
@@ -76,24 +78,35 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
         if deadline - time.monotonic() < settings.recheck_reserve_seconds:
             stopped = "time"
             break
-        ply, tok_index = target
-        asked.add(tok_index)
-        tok = tokens[tok_index]
-        board = chess.Board(ply.fen_before)
-        legal = sorted(notation.render(board, m, notation.LANGUAGES[lang]) for m in board.legal_moves)
-        prev = " ".join(p.local for p in result.plies[:ply.ply])
-        number = tok.number or ply.ply // 2 + 1
-        color = tok.color or ("w" if ply.ply % 2 == 0 else "b")
-        img = images[tok.sheet] if tok.sheet < len(images) else (images[0] if images else None)
-        crop = crop_cell(img, layouts.get(tok.sheet), number, color) if settings.recheck_crop and img else None
-        answer, call = provider.recheck([img] if img else images, number, color, tok.text, ply.fen_before, legal, prev, crop=crop)
-        record(call)
-        new = [c for c in answer.candidates if c not in tok.alternatives and c != tok.text]
-        if not new:
-            continue                    # same answer again: do not insist, a person decides
-        tok.alternatives = new + tok.alternatives
-        tok.confidence = min(tok.confidence, 0.5)
-        result = decode(tokens, lang)
+        jobs = []
+        for ply, tok_index in targets[:room]:
+            asked.add(tok_index)
+            tok = tokens[tok_index]
+            board = chess.Board(ply.fen_before)
+            legal = sorted(notation.render(board, m, notation.LANGUAGES[lang]) for m in board.legal_moves)
+            prev = " ".join(p.local for p in result.plies[:ply.ply])
+            number = tok.number or ply.ply // 2 + 1
+            color = tok.color or ("w" if ply.ply % 2 == 0 else "b")
+            img = images[tok.sheet] if tok.sheet < len(images) else (images[0] if images else None)
+            crop = crop_cell(img, layouts.get(tok.sheet), number, color) if settings.recheck_crop and img else None
+            jobs.append((tok, ([img] if img else images, number, color, tok.text, ply.fen_before, legal, prev, crop)))
+
+        def ask(job):
+            a = job[1]
+            return provider.recheck(a[0], a[1], a[2], a[3], a[4], a[5], a[6], crop=a[7])
+
+        answers = _parallel(provider, ask, jobs)
+        changed = False
+        for (tok, _), (answer, call) in zip(jobs, answers):
+            record(call)
+            new = [c for c in answer.candidates if c not in tok.alternatives and c != tok.text]
+            if not new:
+                continue                # same answer again: do not insist, a person decides
+            tok.alternatives = new + tok.alternatives
+            tok.confidence = min(tok.confidence, 0.5)
+            changed = True
+        if changed:
+            result = decode(tokens, lang)
 
     pgn = build_pgn(reading.header, result, settings.pgn_comments_language)
     return GameOutcome(reading, result, pgn, calls, stopped, tokens=tokens)
@@ -107,12 +120,7 @@ def _read(images, provider, record, budget_ok) -> GameReading:
         record(call)
         return reading
     # the photos are read at the same time (each reading takes up to a minute)
-    from concurrent.futures import ThreadPoolExecutor
-    if getattr(provider, "parallel_ok", True):
-        with ThreadPoolExecutor(max_workers=len(images)) as pool:
-            results = list(pool.map(lambda img: provider.read_sheet([img]), images))
-    else:
-        results = [provider.read_sheet([img]) for img in images]
+    results = _parallel(provider, lambda img: provider.read_sheet([img]), images)
     readings = []
     for i, (r, call) in enumerate(results):
         record(call)
@@ -123,13 +131,24 @@ def _read(images, provider, record, budget_ok) -> GameReading:
     return GameReading(merge_headers([r.header for r in readings]), sheets)
 
 
-def _next_doubtful(result: DecodeResult, tokens, asked):
-    """Earliest doubtful written cell not asked yet (fixing it often fixes later ones)."""
+def _doubtful_targets(result: DecodeResult, tokens, asked, n: int):
+    """Earliest doubtful written cells not asked yet (fixing one often fixes later ones)."""
+    out = []
     for p in result.plies:
         if p.status == "doubtful" and p.token is not None and p.token not in asked \
                 and tokens[p.token].kind in ("move", "illegible"):
-            return p, p.token
-    return None
+            out.append((p, p.token))
+            if len(out) >= n:
+                break
+    return out
+
+
+def _parallel(provider, fn, items):
+    if len(items) > 1 and getattr(provider, "parallel_ok", True):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(items)) as pool:
+            return list(pool.map(fn, items))
+    return [fn(x) for x in items]
 
 
 class BudgetExhausted(Exception):

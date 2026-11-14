@@ -121,3 +121,17 @@ def test_no_recheck_when_time_runs_short():
     s = Settings(); s.model_provider = "fake"
     out = process_game([Image(b"a")], prov, s, deadline=time.monotonic() + 10)   # less than the reserve
     assert prov.calls == 1 and out.stopped_because == "time"
+
+
+def test_single_sheet_in_english():
+    sheet = Sheet(plies=cells(SANS, "en"), language="de")   # the model may still say "de"
+    r = decode(build_tokens(GameReading(Header(), [sheet]), "de"), "de")
+    assert [p.san for p in r.plies] == SANS and all(p.status == "ok" for p in r.plies)
+    assert r.plies[2].local == "Sf3"
+
+
+def test_clear_opponent_move_wins_over_unsure_one():
+    mine = cells(SANS)
+    mine[5].text, mine[5].confidence = "Lf5", 0.3          # 3... Bg4 misread, legal, unsure
+    both = decode(build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=cells(SANS, "en"), role="opponent", image=1)]), "de"), "de")
+    assert both.plies[5].san == "Bg4"

@@ -21,6 +21,7 @@ REFERENCES = {
           "Ne3 Qa5+ Kd1 Be6 Rxb7 Rab8 Qxc6 Rxb7 Qxb7 Qxa2 Nc1 Qa4 Be2 Rc8 Nc4 Bh6 Nb3 Qa2 Nbd2 Kg7 Qb1 Qa4 "
           "Qb2+ f6 g4 Qc6 Rg1 Bxg4 Bxg4 hxg4 Rxg4 Qh1+ Ke2 Qh3 Rg3 Qxh4 Nd6 Qh5+ Nf3 Rd8 Qb7 Kf8 Ne4 Bf4 "
           "Rg2 Ke8 Qc6+ Kf8 Nxf6 exf6 Qxf6+ Ke8 Rxg6 Rd6 Rg8+ Kd7 Qxf4 Re6+ Kd2 Qa5+ Kd1 Qa1+ Qc1 Qa5 Rg7+ Kd6",
+    # 11: checked move by move by Igor against the sheet (2026-11-14)
     "11": "d4 c6 Nf3 d5 e3 Bf5 Bd3 Bxd3 Qxd3 Nd7 b3 e6 Bb2 Ngf6 Nbd2 Bd6 O-O Qc7 c4 Qc8 Ne5 Qc7 f4 Bxe5 "
           "fxe5 Ng4 Qe2 h5 cxd5 exd5 Qf3 f6 h3 Nh6 Qxh5+ Nf7 Qg6 Rf8 e6 O-O-O exf7 Kb8 Ba3 Rh8 e4 Qa5 "
           "Bd6+ Ka8 b4 Qa3 e5 Qe3+ Rf2 Qxd4 Re1 fxe5 Nf3 Qb6 Nxe5 Nxe5 Bxe5 Qxb4 Ref1 Qc5 Kh1 Rc8 Bxg7",

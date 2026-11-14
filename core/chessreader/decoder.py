@@ -287,6 +287,14 @@ def _build_result(finished, tokens, lang, s, start) -> DecodeResult:
             status = "fixed"
         if step.kind in ("missing", "fill"):
             status = "doubtful"     # a guessed move is always shown to a person
+        if tok is not None and tok.conflict and step.kind != "user":
+            # the two sheets disagree: always shown to a person, with the other sheet's move
+            status = "doubtful"
+            for alt in tok.alternatives[:2]:
+                pa = notation.parse(alt, lang)
+                for m in (notation.matches(board, pa) if pa else [])[:1]:
+                    if m != step.move and m not in alt_moves:
+                        alt_moves.append(m)
         if step.kind == "user":
             status, alt_moves = "ok", []
         plies.append(DecodedPly(

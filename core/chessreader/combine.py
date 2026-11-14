@@ -95,38 +95,52 @@ def build_tokens(reading: GameReading, language: str) -> list[RawPly]:
     _, plang, prim, pres = decoded[0]
     prim = [_to_language(t, plang, language) for t in prim]
     target = notation.LANGUAGES[language]
+    # A move of the other sheet is only compared with the main sheet's move made from the
+    # SAME position (not just the same move number): after a skipped or misread move the
+    # two records would otherwise be compared one move apart and give wrong "confirmations".
+    main_at = {_pos(pp.fen_before): pp for pp in pres.plies}
+    last_main_fen = _pos(pres.final_fen)
     for _, _, sec_toks, sres in decoded[1:]:
         board = chess.Board()
+        tail = False
         for k, sp in enumerate(sres.plies):
             mv = board.parse_san(sp.san)
             local = notation.render(board, mv, target)
+            here = _pos(board.fen())
             board.push(mv)
             src = sec_toks[sp.token] if sp.token is not None else None
             sure = sp.status == "ok"
-            if k < len(pres.plies):
-                pp = pres.plies[k]
-                if pp.token is None:
-                    continue                      # inserted move on the main sheet: nothing to attach to
-                tok = prim[pp.token]
-                if tok.kind in ("empty", "gap", "illegible"):
-                    if src is not None:
-                        tok.text, tok.kind = local, "move"
-                        tok.confidence = min(src.confidence, 0.8)
-                    continue
-                if pp.san == sp.san:
-                    if sure:
-                        tok.confidence = max(tok.confidence, 0.95)
-                elif src is not None and sure and pp.status != "ok":
-                    # the other sheet is clear here, this one is not: trust the clear one
-                    old = tok.text
-                    tok.text, tok.confidence = local, max(0.7, min(src.confidence, 0.9))
-                    tok.alternatives = [x for x in [old] + tok.alternatives if x != local]
-                elif src is not None and local not in tok.alternatives:
+            pp = main_at.get(here)
+            if pp is None:
+                if (tail or here == last_main_fen) and src is not None:
+                    # the main record ends here: go on with the other sheet's moves
+                    tail = True
+                    prim.append(RawPly(text=local, number=k // 2 + 1, color="wb"[k % 2],
+                                       confidence=min(src.confidence, 0.55), alternatives=[], kind="move",
+                                       sheet=src.sheet))
+                continue
+            if pp.token is None or src is None:
+                continue                          # an inserted move on either sheet: nothing to compare
+            tok = prim[pp.token]
+            if tok.kind in ("empty", "gap", "illegible"):
+                tok.text, tok.kind = local, "move"
+                tok.confidence = 0.55             # taken from the other sheet: shown as corrected, not as sure
+                continue
+            if pp.san == sp.san:
+                if sure and pp.reason == "exact":
+                    tok.confidence = max(tok.confidence, 0.95)   # both sheets say the same
+                continue
+            # the sheets disagree: never shown as sure
+            if sure and pp.reason != "exact":
+                # the other sheet is clear, this one did not fit as written: use the clear one
+                old = tok.text
+                tok.text = local
+                tok.alternatives = [x for x in [old] + tok.alternatives if x and x != local]
+            else:
+                if local not in tok.alternatives:
                     tok.alternatives = [local] + tok.alternatives
-            elif src is not None:
-                # the main record ends here: go on with the other sheet's moves
-                prim.append(RawPly(text=local, number=k // 2 + 1, color="wb"[k % 2],
-                                   confidence=src.confidence, alternatives=[], kind="move", sheet=src.sheet))
+                tok.conflict = True               # a person should look at it
+            tok.confidence = min(tok.confidence, 0.5)
     return prim
 
 
@@ -142,3 +156,8 @@ def _to_language(tok: RawPly, src: str, dst: str) -> RawPly:
     tok.text = tr(tok.text)
     tok.alternatives = [tr(x) for x in tok.alternatives]
     return tok
+
+
+def _pos(fen: str) -> str:
+    """Position part of a FEN (pieces, side to move, castling, en passant)."""
+    return " ".join(fen.split(" ")[:4])

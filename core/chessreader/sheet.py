@@ -38,6 +38,7 @@ class RawPly:
     pinned: bool = False               # a person chose this move in the review: the decoder must use it
     orig: str | None = None            # for a pinned cell: what the model had read there
     sheet: int = 0                     # index of the photo this cell is on
+    conflict: bool = False             # the opponent's sheet has another legal move here
 
 
 @dataclass

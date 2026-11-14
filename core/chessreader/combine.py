@@ -100,6 +100,8 @@ def build_tokens(reading: GameReading, language: str) -> list[RawPly]:
     # two records would otherwise be compared one move apart and give wrong "confirmations".
     main_at = {_pos(pp.fen_before): pp for pp in pres.plies}
     last_main_fen = _pos(pres.final_fen)
+    # cells of the main record by printed number, for hints when the positions differ
+    by_number = {(t.number, t.color): t for t in prim if t.kind == "move" and t.number and t.color}
     for _, _, sec_toks, sres in decoded[1:]:
         board = chess.Board()
         tail = False
@@ -118,6 +120,13 @@ def build_tokens(reading: GameReading, language: str) -> list[RawPly]:
                     prim.append(RawPly(text=local, number=k // 2 + 1, color="wb"[k % 2],
                                        confidence=min(src.confidence, 0.55), alternatives=[], kind="move",
                                        sheet=src.sheet))
+                elif src is not None:
+                    # the records went apart (a misread move on one of them): the other
+                    # sheet's move with the same number is still a good hint, but only a hint
+                    tok = by_number.get((k // 2 + 1, "wb"[k % 2]))
+                    if (tok is not None and tok.confidence < 0.9 and local != tok.text
+                            and local not in tok.alternatives and len(tok.alternatives) < 4):
+                        tok.alternatives.append(local)
                 continue
             if pp.token is None or src is None:
                 continue                          # an inserted move on either sheet: nothing to compare

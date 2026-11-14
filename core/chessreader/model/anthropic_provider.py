@@ -8,15 +8,13 @@ from __future__ import annotations
 import base64
 import json
 
+import time
+
 import anthropic
 
-from .base import Image, ModelCall, ModelProvider, RecheckAnswer
+from .base import Image, ModelCall, ModelError, ModelProvider, RecheckAnswer
 from .prompt import read_instructions, recheck_instructions
 from .schema import RecheckOut, SheetOut, to_reading
-
-
-class ModelError(Exception):
-    """The model could not deliver a usable answer (refusal, truncation, API error)."""
 
 
 def _schema(model_cls) -> dict:
@@ -48,6 +46,15 @@ class AnthropicProvider(ModelProvider):
     def __init__(self, settings, client: anthropic.Anthropic | None = None):
         self.settings = settings
         self.client = client or anthropic.Anthropic(timeout=110.0, max_retries=1)
+        self.deadline = None           # time.monotonic() by which every call must be finished
+
+    def _timeout(self):
+        if self.deadline is None:
+            return {}
+        left = self.deadline - time.monotonic()
+        if left < 15:
+            raise ModelError("no time left for another model call")
+        return {"timeout": min(110.0, left)}
 
     def _call(self, system: str, content: list[dict], schema: dict, purpose: str, max_tokens: int):
         s = self.settings
@@ -64,6 +71,7 @@ class AnthropicProvider(ModelProvider):
                 output_config={"effort": s.model_effort,
                                "format": {"type": "json_schema", "schema": schema}},
                 **fallback,
+                **self._timeout(),
             )
         except anthropic.AuthenticationError as e:
             raise ModelError("model API key is missing or invalid") from e
@@ -71,6 +79,8 @@ class AnthropicProvider(ModelProvider):
             raise ModelError("model is busy (rate limit), try again in a minute") from e
         except anthropic.APIStatusError as e:
             raise ModelError(f"model API error {e.status_code}") from e
+        except anthropic.APITimeoutError as e:
+            raise ModelError("the model took too long") from e
         except anthropic.APIConnectionError as e:
             raise ModelError("cannot reach the model API") from e
 

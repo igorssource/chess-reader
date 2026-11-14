@@ -156,3 +156,38 @@ def test_sheets_disagree_is_never_green():
     r = decode(build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=opp, role="opponent", image=1)]), "de"), "de")
     assert r.plies[-1].san == "Rd8#"
     assert r.plies[-1].status == "doubtful" and "Td7" in r.plies[-1].alternatives
+
+
+def test_records_apart_still_give_hints_by_number():
+    mine = cells(SANS)
+    mine[5].confidence = 0.4                              # 3... Lg4, unsure
+    opp = cells("e4 e5 Nf3 Nc6 Bb5 a6 Bxc6 dxc6".split(), "en")   # went apart after move 2
+    opp[6].confidence = opp[7].confidence = 0.3           # and is the weaker record
+    toks = build_tokens(GameReading(Header(), [Sheet(plies=mine), Sheet(plies=opp, role="opponent", image=1)]), "de")
+    assert toks[5].text == "Lg4" and "a6" in toks[5].alternatives   # a hint only
+    assert "Lxc6" not in toks[0].alternatives and toks[6].confidence == 1.0   # sure cells untouched
+
+
+def test_mate_cell_is_not_a_move():
+    from chessreader.sheet import flatten, result_of
+    assert result_of("Mat") == "*" and result_of("matt") == "*" and result_of("Ma5") is None
+    plies = cells(SANS) + [RawPly(text="Mat", number=17, color="b")]
+    toks = flatten(GameReading(Header(), [Sheet(plies=plies)]))
+    assert [t.text for t in toks][-1] != "Mat"
+
+
+def test_strong_model_failure_keeps_cheap_result():
+    from chessreader.model.base import ModelError
+    from chessreader.model.fake import demo_reading
+    from chessreader.pipeline import process_cascade
+
+    class Broken(FakeProvider):
+        def read_sheet(self, images):
+            raise ModelError("the model took too long")
+
+    r = demo_reading()
+    r.sheets[0].plies[2].confidence = 0.2                 # unsure -> asks for the strong model
+    s = Settings(); s.model_provider = "fake"
+    s.cascade_models = ["cheap", "strong"]; s.cascade_cheap_max_calls = 1
+    out = process_cascade([Image(b"a")], lambda m: FakeProvider(s, reading=r) if m == "cheap" else Broken(s), s)
+    assert out.result.plies and len(out.calls) == 1

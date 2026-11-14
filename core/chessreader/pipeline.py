@@ -17,7 +17,7 @@ import chess
 from . import notation
 from .config import Settings
 from .decoder import DecodeResult, decode
-from .model.base import Image, ModelCall, ModelProvider
+from .model.base import Image, ModelCall, ModelError, ModelProvider
 from .pgn_export import build_pgn
 from .combine import build_tokens, classify, merge_headers
 from .imaging import crop_cell
@@ -93,11 +93,19 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
 
         def ask(job):
             a = job[1]
-            return provider.recheck(a[0], a[1], a[2], a[3], a[4], a[5], a[6], crop=a[7])
+            try:
+                return provider.recheck(a[0], a[1], a[2], a[3], a[4], a[5], a[6], crop=a[7])
+            except ModelError:
+                return None             # a failed re-check must not lose the whole reading
 
         answers = _parallel(provider, ask, jobs)
         changed = False
-        for (tok, _), (answer, call) in zip(jobs, answers):
+        failed = False
+        for (tok, _), got in zip(jobs, answers):
+            if got is None:
+                failed = True
+                continue
+            answer, call = got
             record(call)
             new = [c for c in answer.candidates if c not in tok.alternatives and c != tok.text]
             if not new:
@@ -107,6 +115,9 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
             changed = True
         if changed:
             result = decode(tokens, lang)
+        if failed:
+            stopped = stopped or "time"
+            break
 
     pgn = build_pgn(reading.header, result, settings.pgn_comments_language)
     return GameOutcome(reading, result, pgn, calls, stopped, tokens=tokens)
@@ -196,12 +207,15 @@ def process_cascade(images: list[Image], make_provider: Callable[[str], ModelPro
             break                       # not enough time left for the strong model to read again
         cap = left if last else min(left, settings.cascade_cheap_max_calls)
         stage = replace(settings, model_name=model, max_calls_per_game=cap)
+        provider = make_provider(model)
+        if hasattr(provider, "deadline"):
+            provider.deadline = deadline   # a slow call must not run past Vercel's limit
         try:
-            out = process_game(images, make_provider(model), stage, budget_ok, on_call, deadline)
-        except BudgetExhausted:
+            out = process_game(images, provider, stage, budget_ok, on_call, deadline)
+        except (BudgetExhausted, ModelError):
             if best is None:
                 raise
-            break
+            break                       # keep the cheap model's result
         used += out.calls
         if best is None or problem_score(out)["share"] <= problem_score(best)["share"]:
             best = out

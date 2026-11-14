@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Partieformular-Leser</title>
+<!-- Variant 2 (test): the same app with a chessboard to step through the recognised game.
+     The main page (../index.html) is unchanged. Bump ?v= on every change of css/js. -->
+<link rel="stylesheet" href="style.css?v=20261114b1">
+<link rel="stylesheet" href="pieces.css?v=20261114b1">
+</head>
+<body>
+<header class="top">
+  <button class="brand" id="home" type="button">
+    <span class="logo" aria-hidden="true">♞</span>
+    <span class="title" data-t="title">Partieformular → PGN</span>
+  </button>
+  <button class="icon-btn" id="menu-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="menu">☰</button>
+  <nav class="menu" id="menu" hidden>
+    <div class="lang"><button data-lang="de" type="button">DE</button><button data-lang="ru" type="button">RU</button></div>
+    <button type="button" class="mi" id="m-new" data-t="again"></button>
+    <button type="button" class="mi" id="m-history" data-t="history"></button>
+    <button type="button" class="mi res-only" id="m-copy" data-t="copy"></button>
+    <button type="button" class="mi res-only" id="m-pgn" data-t="show_pgn"></button>
+    <button type="button" class="mi res-only" id="m-flip" data-t="flip"></button>
+    <a class="mi" href="../" data-t="old_page"></a>
+  </nav>
+</header>
+
+<main>
+  <!-- Step 1: photo -->
+  <section id="step-upload">
+    <div class="card">
+      <p class="intro" data-t="intro"></p>
+      <div id="selected" class="selected" hidden>
+        <div id="thumbs" class="thumbs"></div>
+        <p id="second-hint" class="hint" data-t="second" hidden></p>
+      </div>
+      <div class="buttons" id="pick-buttons">
+        <label class="btn primary" id="camera-btn"><span aria-hidden="true">📷</span><span data-t="camera"></span>
+          <input type="file" accept="image/*" capture="environment" id="camera" hidden></label>
+        <label class="btn" id="file-btn"><span aria-hidden="true">🖼️</span><span data-t="upload"></span>
+          <input type="file" accept="image/*" id="file" hidden></label>
+      </div>
+      <div class="buttons" id="send-buttons" hidden>
+        <button class="btn primary big" id="send" type="button" data-t="send"></button>
+      </div>
+      <!-- Hidden test mode for the admin: open the page once with #admin=<ADMIN_TOKEN>. -->
+      <div id="admin" class="admin" hidden>
+        <b>Тест-режим (админ)</b>
+        <label>Модель
+          <select id="admin-model">
+            <option value="">по умолчанию: Haiku, при сомнениях Sonnet</option>
+            <option value="claude-haiku-5-5">только Haiku 5.5 (дешёвая)</option>
+            <option value="claude-sonnet-5-5">только Sonnet 5.5</option>
+            <option value="claude-opus-5-5">Opus 5.5 (дорогая)</option>
+          </select></label>
+        <label>Эталон для сравнения
+          <select id="admin-ref">
+            <option value="">нет</option>
+            <option value="01">01 (20 ходов, скан/фото)</option>
+            <option value="02">02 (15 ходов)</option>
+            <option value="07">07 (42 хода, лист b)</option>
+            <option value="10">10 (до 45-го хода)</option>
+            <option value="11">11 (34 хода)</option>
+          </select></label>
+        <button class="btn small" id="admin-off" type="button">Выключить тест-режим</button>
+      </div>
+      <p class="privacy" data-t="privacy"></p>
+      <details class="more"><summary data-t="tips_title"></summary><p class="hint" data-t="tips"></p></details>
+    </div>
+
+    <div class="card history" id="history" hidden>
+      <h2 data-t="history"></h2>
+      <ul id="history-list" class="games"></ul>
+      <p class="hint" data-t="history_hint"></p>
+    </div>
+  </section>
+
+  <!-- Step 2: reading -->
+  <section class="card" id="step-busy" hidden>
+    <div id="busy-thumbs" class="busy-thumbs"></div>
+    <p class="busy"><span class="spinner"></span><span id="busy-text"></span></p>
+  </section>
+
+  <section class="card error" id="step-error" hidden>
+    <p id="error-text"></p>
+    <button class="btn" id="again-error" type="button" data-t="back"></button>
+  </section>
+
+  <!-- Step 3: the game on the board -->
+  <section id="step-result" hidden>
+    <div class="result">
+      <div class="left">
+        <div class="above">
+          <p id="opening" class="opening"></p>
+          <div class="view-tabs" role="tablist">
+            <button type="button" id="v-board" class="on" data-t="board" aria-pressed="true"></button>
+            <button type="button" id="v-photo" data-t="sheet" aria-pressed="false"></button>
+          </div>
+        </div>
+        <div class="stage">
+          <div id="board" class="board" aria-label="board"></div>
+          <div id="photo-view" class="photo-view" hidden>
+            <img id="preview" alt="">
+            <div id="photo-tabs" class="photo-tabs" hidden></div>
+          </div>
+        </div>
+        <div class="navbar">
+          <button type="button" class="nav" id="n-first" aria-label="⏮">⏮</button>
+          <button type="button" class="nav" id="n-prev" aria-label="◀">◀</button>
+          <button type="button" class="cur" id="n-cur"></button>
+          <button type="button" class="nav" id="n-next" aria-label="▶">▶</button>
+          <button type="button" class="nav" id="n-last" aria-label="⏭">⏭</button>
+        </div>
+        <div id="info" class="info"></div>
+      </div>
+
+      <div class="right">
+        <button type="button" class="btn doubt" id="next-doubt" hidden></button>
+        <div id="moves" class="moves"></div>
+        <p id="summary" class="hint"></p>
+        <p id="sheets-note" class="hint" hidden></p>
+        <button class="btn small" id="undo" type="button" data-t="undo" hidden></button>
+        <p id="admin-result" class="admin" hidden></p>
+
+        <details class="card header-box" id="header-box">
+          <summary><span id="header-sum"></span> <span class="edit" data-t="edit"></span></summary>
+          <div class="grid">
+            <label><span data-t="white"></span><input id="h-white"></label>
+            <label><span data-t="black"></span><input id="h-black"></label>
+            <label><span data-t="event"></span><input id="h-event"></label>
+            <label><span data-t="site"></span><input id="h-site"></label>
+            <label><span data-t="date"></span><input id="h-date" placeholder="2026.11.11"></label>
+            <label><span data-t="round"></span><input id="h-round"></label>
+            <label><span data-t="result"></span>
+              <select id="h-result"><option>*</option><option>1-0</option><option>0-1</option><option>1/2-1/2</option></select></label>
+          </div>
+        </details>
+
+        <div class="buttons actions">
+          <button class="btn primary" id="download" type="button" data-t="download"></button>
+          <button class="btn" id="lichess" type="button" data-t="lichess"></button>
+        </div>
+        <pre id="pgn" class="pgn" hidden></pre>
+      </div>
+    </div>
+  </section>
+</main>
+<footer data-t="footer"></footer>
+<script src="../config.js?v=20261114b1"></script>
+<script src="../openings.js?v=20261114b1"></script>
+<script src="../vendor/chess.js?v=20261114b1"></script>
+<script src="app.js?v=20261114b1"></script>
+</body>
+</html>

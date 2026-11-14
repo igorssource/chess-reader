@@ -38,6 +38,7 @@ class DecoderSettings:
     ambiguity_margin: float = 0.35
     lookahead_bonus: float = 0.1      # guessed move that lets the side's next written moves work
     lookahead_moves: int = 3
+    move_back_cost: float = 0.1       # ambiguous written move: undoing own last move is less likely
     insert_from_top: int = 8          # only the best paths may assume a forgotten move     # alternatives within this cost are shown to a person
 
 
@@ -235,7 +236,13 @@ def _expand(st: _State, tok: RawPly, i: int, trailing: bool, lang, s: DecoderSet
     cands = cache.get(ck)
     if cands is None:
         cands = cache[ck] = _candidates(board, tok, lang, s)
+    # Several pieces fit the written move (Td1 with rooks on d2 and h1): a piece rarely
+    # goes straight back to where it just came from, so that reading costs a little more.
+    own_prev = st.steps[-2].move if len(st.steps) >= 2 else None
     for mv, (c, kind, amb) in cands.items():
+        if amb and own_prev is not None and mv.from_square == own_prev.to_square \
+                and mv.to_square == own_prev.from_square:
+            c += s.move_back_cost
         yield push(mv, c, kind, amb=amb)
     has_exact = any(k == "exact" for _, k, _ in cands.values())
     if not has_exact or tok.confidence < s.low_confidence:

@@ -100,3 +100,20 @@ def test_pgn_export():
     r = decode(sheet)
     pgn = build_pgn(Header(white="Morphy", black="Duke/Count", result="1-0"), r)
     assert '[White "Morphy"]' in pgn and "Rd8#" in pgn and "korrigiert" in pgn
+
+
+def test_ambiguous_rook_prefers_not_moving_back():
+    # rook went d2->d1->d2 before; now "Td1" with rooks on d2 and h1: the h1 rook is likelier
+    from chessreader.sheet import RawPly as R
+    sans = "d4 d5 Nf3 Nf6 Bf4 Bf5 Na3 Na6 e3 e6 Be2 Be7 c3 c6 Qc2 Qc7 O-O-O O-O-O Rd2 Rd7".split()
+    import chess
+    from chessreader import notation
+    b = chess.Board(); toks = []
+    for k, san in enumerate(sans):
+        mv = b.parse_san(san)
+        toks.append(R(text=notation.render(b, mv, notation.LANGUAGES["de"]), number=k // 2 + 1, color="wb"[k % 2]))
+        b.push(mv)
+    toks.append(R(text="Td1", number=11, color="w"))
+    r = decode(toks, "de")
+    assert r.plies[-1].san == "Rhd1" and r.plies[-1].status == "doubtful"
+    assert "Tdd1" in r.plies[-1].alternatives

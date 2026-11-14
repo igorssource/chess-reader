@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Partieformular-Leser</title>
-<link rel="stylesheet" href="style.css?v=20261114t1">
+<link rel="stylesheet" href="style.css?v=20261114t2">
 </head>
 <body>
 <header class="top">
@@ -82,8 +82,8 @@
   </section>
 
   <section class="card" id="step-busy" hidden>
-    <img id="preview-busy" class="preview busy-img" alt="">
-    <p class="busy"><span class="spinner"></span><span data-t="busy"></span></p>
+    <div id="busy-thumbs" class="busy-thumbs"></div>
+    <p class="busy"><span class="spinner"></span><span id="busy-text"></span></p>
   </section>
 
   <section class="card error" id="step-error" hidden>
@@ -116,7 +116,11 @@
       </p>
       <p class="hint tap-hint" data-t="tap_hint"></p>
       <div class="split">
-        <img id="preview" class="preview" alt="">
+        <div class="photo-col">
+          <img id="preview" class="preview" alt="">
+          <div id="photo-tabs" class="photo-tabs" hidden></div>
+          <p id="sheets-note" class="sheets-note" hidden></p>
+        </div>
         <table class="moves"><tbody id="moves"></tbody></table>
       </div>
       <div id="detail" class="detail" hidden></div>
@@ -137,9 +141,9 @@
   </section>
 </main>
 <footer data-t="footer"></footer>
-<script src="config.js?v=20261114t1"></script>
-<script src="openings.js?v=20261114t1"></script>
+<script src="config.js?v=20261114t2"></script>
+<script src="openings.js?v=20261114t2"></script>
 <!-- Bump ?v= on every change of css/js: phones cache these files and would mix a new page with old code. -->
-<script src="app.js?v=20261114t1"></script>
+<script src="app.js?v=20261114t2"></script>
 </body>
 </html>

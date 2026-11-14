@@ -23,6 +23,10 @@
       camera: "Foto aufnehmen", upload: "Bild hochladen",
       tips: "Tipps: Formular flach hinlegen, gutes Licht, ganzes Formular im Bild.",
       busy: "Formular wird gelesen … das kann bis zu einer Minute dauern.",
+      busy2: "Beide Formulare werden gelesen und Zug für Zug verglichen … das kann 1–3 Minuten dauern.",
+      selected_n: (n) => `Ausgewählte Fotos (${n})`, send_n: (n) => `${n} Fotos senden`, photo_n: (n) => `Foto ${n}`,
+      sheets_opp: (lang) => `Beide Formulare wurden gelesen und Zug für Zug verglichen. Foto 2: Formular des Gegners${lang === "en" ? " (englische Notation)" : ""}.`,
+      sheets_cont: "Beide Fotos wurden als eine Partie gelesen (Foto 2: Fortsetzung).",
       header: "Partiedaten", white: "Weiß", black: "Schwarz", event: "Turnier", site: "Ort", date: "Datum", round: "Runde", result: "Ergebnis",
       opening: "Eröffnung", moves: "Züge", "l-ok": "sicher", "l-fixed": "automatisch korrigiert", "l-doubtful": "bitte prüfen",
       download: "PGN herunterladen", copy: "PGN kopieren", copied: "Kopiert", again: "Neues Formular",
@@ -54,6 +58,10 @@
       camera: "Сделать фото", upload: "Загрузить файл",
       tips: "Советы: положите бланк ровно, хорошее освещение, весь бланк в кадре.",
       busy: "Читаю бланк … это может занять до минуты.",
+      busy2: "Читаю оба бланка и сверяю их ход за ходом … это может занять 1–3 минуты.",
+      selected_n: (n) => `Выбранные фото (${n})`, send_n: (n) => `Отправить ${n} фото`, photo_n: (n) => `Фото ${n}`,
+      sheets_opp: (lang) => `Прочитаны оба бланка и сверены ход за ходом. Фото 2 — бланк соперника${lang === "en" ? " (английская запись)" : ""}.`,
+      sheets_cont: "Оба фото прочитаны как одна партия (фото 2 — продолжение).",
       header: "Данные партии", white: "Белые", black: "Чёрные", event: "Турнир", site: "Место", date: "Дата", round: "Тур", result: "Результат",
       opening: "Дебют", moves: "Ходы", "l-ok": "уверенно", "l-fixed": "исправлено автоматически", "l-doubtful": "проверьте",
       download: "Скачать PGN", copy: "Копировать PGN", copied: "Скопировано", again: "Новый бланк",
@@ -79,7 +87,7 @@
   let state = null;   // last server result
   let photos = [];    // selected photos: [{blob, url}], sent only after the user confirms
   let currentId = null;  // id of the shown game in the browser history (IndexedDB)
-  let resultPhotoUrl = null;
+  let resultUrls = [];   // object URLs of a game opened from the history
 
   // ---- History: every recognised game is kept in this browser (IndexedDB), so it
   // survives closing the browser and needs no new upload (no extra cost).
@@ -187,6 +195,8 @@
   function renderSelected() {
     const has = photos.length > 0;
     $("selected").hidden = !has;
+    $("selected").querySelector("h2").textContent = photos.length > 1 ? t("selected_n")(photos.length) : t("selected");
+    $("send").textContent = photos.length > 1 ? t("send_n")(photos.length) : t("send");
     $("send-buttons").hidden = !has;
     // Pick buttons: shown while nothing is chosen, or while more photos may be added.
     $("pick-buttons").hidden = has && photos.length >= MAX_PHOTOS;
@@ -212,7 +222,11 @@
   // Step 2: the user confirmed. Send all selected photos to the server.
   async function send() {
     if (!photos.length) return;
-    $("preview-busy").src = photos[0].url; $("preview").src = photos[0].url; $("preview").hidden = false;
+    const bt = $("busy-thumbs");
+    bt.innerHTML = "";
+    photos.forEach((ph) => { const i = document.createElement("img"); i.src = ph.url; i.alt = ""; bt.appendChild(i); });
+    bt.classList.toggle("two", photos.length > 1);
+    $("busy-text").textContent = photos.length > 1 ? t("busy2") : t("busy");
     show("step-busy");
     const form = new FormData();
     photos.forEach((p, i) => form.append("files", p.blob, `sheet-${i + 1}.jpg`));
@@ -245,7 +259,8 @@
     currentId = String(Date.now());
     await saveGame({ id: currentId, created: Date.now(), header: data.header, plies: data.plies, pgn: data.pgn,
       skipped_cells: data.skipped_cells || [], cells: data.cells || null, language: data.language || "de",
-      photo: photos[0].blob });
+      sheets: data.sheets || [], photo: photos[0].blob, photos: photos.map((ph) => ph.blob) });
+    showPhotos(photos.map((ph) => ph.url), data.sheets || []);
     fillHeader(data.header);
     undoState = null; $("undo").hidden = true;
     renderResult();
@@ -289,14 +304,32 @@
     currentId = g.id;
     state = { header: g.header, plies: g.plies, pgn: g.pgn, skipped_cells: g.skipped_cells,
       cells: g.cells || null, language: g.language || "de" };
-    if (resultPhotoUrl) URL.revokeObjectURL(resultPhotoUrl);
-    resultPhotoUrl = g.photo ? URL.createObjectURL(g.photo) : null;
-    $("preview").hidden = !resultPhotoUrl;
-    if (resultPhotoUrl) $("preview").src = resultPhotoUrl;
+    resultUrls.forEach((u) => URL.revokeObjectURL(u));
+    resultUrls = (g.photos || (g.photo ? [g.photo] : [])).map((b) => URL.createObjectURL(b));
+    showPhotos(resultUrls, g.sheets || []);
     fillHeader(g.header);
     undoState = null; $("undo").hidden = true;
     renderResult();
     show("step-result");
+  }
+
+  // Photo(s) next to the moves; with two photos small buttons switch between them.
+  function showPhotos(urls, sheets) {
+    const pv = $("preview"), tabs = $("photo-tabs"), note = $("sheets-note");
+    pv.hidden = !urls.length;
+    if (urls.length) pv.src = urls[0];
+    tabs.innerHTML = "";
+    tabs.hidden = urls.length < 2;
+    urls.forEach((u, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "ptab" + (i ? "" : " on");
+      b.innerHTML = `<img src="${u}" alt=""><span>${esc(t("photo_n")(i + 1))}</span>`;
+      b.onclick = () => { pv.src = u; tabs.querySelectorAll(".ptab").forEach((x, j) => x.classList.toggle("on", j === i)); };
+      tabs.appendChild(b);
+    });
+    const second = (sheets || []).find((sh) => sh.image === 1);
+    note.hidden = urls.length < 2 || !second;
+    if (second) note.textContent = second.role === "continuation" ? t("sheets_cont") : t("sheets_opp")(second.language);
   }
 
   // Header edits are saved too, so the corrected names stay with the game.

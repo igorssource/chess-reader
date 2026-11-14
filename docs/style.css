@@ -143,3 +143,15 @@ tr.detail-row td { padding: 2px 0 8px; }
 .fix-msg.bad { color: var(--bad); }
 .tap-hint { margin: -4px 0 8px; }
 .detail.busy-fix .chip, .detail.busy-fix .fix-form { opacity: .5; }
+
+/* two photos: while reading and next to the moves */
+.busy-thumbs { display: grid; gap: 10px; justify-items: center; }
+.busy-thumbs.two { grid-template-columns: 1fr 1fr; }
+.busy-thumbs img { max-width: 100%; max-height: 45vh; border-radius: 10px; opacity: .85; object-fit: contain; }
+.photo-col { min-width: 0; }
+.photo-tabs { display: flex; gap: 8px; margin-top: 8px; }
+.ptab { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer; }
+.ptab img { width: 32px; height: 40px; object-fit: cover; border-radius: 6px; }
+.ptab.on { border-color: var(--accent); background: var(--accent-soft); }
+.sheets-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); font-size: .85rem; }

@@ -11,7 +11,10 @@ def notation_hint(lang_code: str) -> str:
     return (f"The moves are written in {lang.name} algebraic notation: {letters}; "
             "pawn moves have no letter. Players may use short (Sf3) or long (Sg1-f3) notation, "
             "':' or 'x' for captures, '0-0'/'0-0-0' for castling, '+' for check, '#' or '++' for mate, "
-            "and a piece letter after the square for promotion (e8D).")
+            "and a piece letter after the square for promotion (e8D). "
+            + ("Some players (often the opponent's sheet) write English letters instead "
+               "(K king, Q queen, R rook, B bishop, N knight): then copy those English letters as they are."
+               if lang_code != "en" else ""))
 
 
 def read_instructions(lang_code: str) -> str:
@@ -55,6 +58,7 @@ def recheck_instructions(lang_code: str) -> str:
 You get the photo, the move number and column of one cell, what was read there before, the
 moves played so far, and the list of LEGAL moves in that position. Look at that exact cell again
 and answer with up to 3 moves from the legal list that best match the handwriting, most likely
-first, written exactly as in the list. If none of them matches what is written, return an empty
+first, written exactly as in the list (the list uses the notation above even if the player
+wrote English letters: translate then, e.g. written "Nf3" = "Sf3"). If none of them matches what is written, return an empty
 list and say what you see in "note".
 """

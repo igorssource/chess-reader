@@ -46,6 +46,8 @@ class Settings:
     time_limit_seconds: float = field(default_factory=lambda: _env("TIME_LIMIT_SECONDS", 240, float))
     recheck_reserve_seconds: float = field(default_factory=lambda: _env("RECHECK_RESERVE_SECONDS", 40, float))
     escalate_reserve_seconds: float = field(default_factory=lambda: _env("ESCALATE_RESERVE_SECONDS", 150, float))
+    # How many doubtful moves are re-read at the same time (faster; same number of calls).
+    recheck_parallel: int = field(default_factory=lambda: _env("RECHECK_PARALLEL", 3, int))
     # Re-read a doubtful move on a zoomed crop of its cell (from the full-size photo).
     recheck_crop: bool = field(default_factory=lambda: _env("RECHECK_CROP", True, _bool))
     pgn_comments_language: str = field(default_factory=lambda: _env("PGN_COMMENTS_LANGUAGE", "de"))

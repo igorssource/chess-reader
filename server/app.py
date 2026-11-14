@@ -27,7 +27,8 @@ from chessreader.model.base import Image
 from chessreader.openings import detect as detect_opening
 from chessreader.pgn_export import build_pgn
 from chessreader.pipeline import BudgetExhausted, process_cascade, process_game
-from chessreader.review import ReviewError, cell_from_dict, cells_from_plies, cells_to_dicts, redecode
+from chessreader.review import (ReviewError, cell_from_dict, cells_from_plies, cells_to_dicts, move_from_text,
+                                redecode)
 from chessreader.sheet import Header
 
 from .kv import get_kv
@@ -197,7 +198,8 @@ class RedecodeRequest(BaseModel):
     plies: list[dict]          # current moves as the page has them
     cells: list[dict] | None = None   # cells read from the photo (None for older saved games)
     ply: int                   # half-move index the person fixed (0 = White's 1st move)
-    san: str                   # the chosen move (English SAN)
+    san: str | None = None     # the chosen move (English SAN) ...
+    text: str | None = None    # ... or as typed/shown in the sheet's notation ("Thd1")
     language: str = "de"
 
 
@@ -208,10 +210,13 @@ def redecode_route(req: RedecodeRequest):
         cells, plies = cells_from_plies(req.plies)
     else:
         cells, plies = [cell_from_dict(c) for c in req.cells], req.plies
+    lang = req.language or s.notation_language
     try:
-        new_plies, new_cells, skipped = redecode(cells, plies, req.ply, req.san, req.language or s.notation_language)
+        san = req.san or move_from_text(plies, req.ply, req.text or "", lang)
+        new_plies, new_cells, skipped = redecode(cells, plies, req.ply, san, lang)
     except ReviewError as e:
-        return _err(400, "bad_request", str(e))
+        return JSONResponse({"error": "no_match", "message": str(e), "options": getattr(e, "options", [])},
+                            status_code=400)
     board = chess.Board()
     decoded = []
     for k, m in enumerate(new_plies):

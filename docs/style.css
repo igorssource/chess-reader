@@ -125,3 +125,21 @@ footer { text-align: center; color: var(--muted); font-size: .8rem; padding: 16p
 .opening { margin: 0 0 10px; padding: 8px 12px; background: var(--accent-soft); border-radius: 10px; font-size: .95rem; }
 .opening .eco { font-size: .8rem; font-weight: 600; color: var(--accent); margin-left: 4px; }
 .opening small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+
+/* quick fix of one move, shown under its row */
+#moves .m { cursor: pointer; }
+.m.user::after { content: " ✓"; font-size: .8em; }
+tr.detail-row, tr.detail-row:nth-child(even) { background: none; }
+tr.detail-row td { padding: 2px 0 8px; }
+.detail-row .detail { margin-top: 0; display: grid; gap: 8px; }
+.fix-chips, .fix-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--card);
+  color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.chip.ok { border-color: var(--ok); color: var(--ok); background: var(--ok-bg); }
+.fix-form { display: flex; gap: 6px; }
+.fix-text { flex: 1; min-width: 0; font: inherit; color: var(--text); padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.fix-form .btn.small { min-height: 40px; }
+.fix-msg { margin: 0; font-size: .88rem; color: var(--muted); }
+.fix-msg.bad { color: var(--bad); }
+.tap-hint { margin: -4px 0 8px; }
+.detail.busy-fix .chip, .detail.busy-fix .fix-form { opacity: .5; }

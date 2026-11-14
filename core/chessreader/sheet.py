@@ -8,8 +8,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# Cells that end the game instead of holding a move ("Remis", "1:0", "aufgegeben" ...)
-_RESULT = re.compile(r"^(rem\w*|remis|draw|½.*|1/2.*|1\s*[:-]\s*0|0\s*[:-]\s*1|aufg\w*|resign\w*|=)\.?$", re.I)
+# Cells that end the game instead of holding a move ("Remis", "1:0", "aufgegeben", "Matt" ...)
+_RESULT = re.compile(r"^(rem\w*|remis|draw|½.*|1/2.*|1\s*[:-]\s*0|0\s*[:-]\s*1|aufg\w*|resign\w*|matt?|checkmate|mate|=)\.?$", re.I)
 
 
 def result_of(text: str) -> str | None:

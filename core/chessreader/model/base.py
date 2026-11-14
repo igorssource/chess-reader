@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from ..sheet import GameReading
 
 
+class ModelError(Exception):
+    """The model could not deliver a usable answer (refusal, truncation, API error, timeout)."""
+
+
 @dataclass
 class Image:
     data: bytes                        # what the model gets for reading the whole sheet

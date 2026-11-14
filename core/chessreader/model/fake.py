@@ -6,6 +6,7 @@ from .base import ModelCall, ModelProvider, RecheckAnswer
 
 class FakeProvider(ModelProvider):
     name = "fake"
+    parallel_ok = False            # readings are handed out in order
 
     def __init__(self, settings, reading=None, recheck_answers=None):
         self.settings = settings

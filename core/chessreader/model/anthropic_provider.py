@@ -47,7 +47,7 @@ class AnthropicProvider(ModelProvider):
 
     def __init__(self, settings, client: anthropic.Anthropic | None = None):
         self.settings = settings
-        self.client = client or anthropic.Anthropic(timeout=120.0, max_retries=2)
+        self.client = client or anthropic.Anthropic(timeout=110.0, max_retries=1)
 
     def _call(self, system: str, content: list[dict], schema: dict, purpose: str, max_tokens: int):
         s = self.settings

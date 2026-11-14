@@ -38,6 +38,7 @@
       e_daily_limit: "Das Tageslimit ist erreicht. Bitte versuche es morgen wieder.",
       e_model_error: "Das Formular konnte nicht gelesen werden: ", e_network: "Keine Verbindung zum Server.",
       e_too_large: "Das Foto ist zu groß.", e_other: "Fehler: ",
+      e_server: (c) => c === 504 ? "Der Server hat zu lange gebraucht (504). Bitte noch einmal versuchen." : `Serverfehler (${c}). Bitte noch einmal versuchen.`,
       tap_hint: "Tippe auf einen Zug, um ihn zu korrigieren.", user: "Von dir bestätigt.", fix_ok: "stimmt", fix_ph: "anderer Zug, z. B. Thd1", fix_go: "OK",
       undo: "↶ Letzte Korrektur rückgängig", did_you_mean: "Meintest du:", fixing: "Rest der Partie wird neu berechnet …", fix_failed: "Hat nicht geklappt: ",
     },
@@ -68,6 +69,7 @@
       e_daily_limit: "Дневной лимит исчерпан. Попробуйте завтра.",
       e_model_error: "Не удалось прочитать бланк: ", e_network: "Нет связи с сервером.",
       e_too_large: "Фото слишком большое.", e_other: "Ошибка: ",
+      e_server: (c) => c === 504 ? "Сервер не успел ответить (504). Попробуйте ещё раз." : `Ошибка сервера (${c}). Попробуйте ещё раз.`,
       tap_hint: "Нажмите на ход, чтобы исправить его.", user: "Подтверждено вами.", fix_ok: "верно", fix_ph: "другой ход, напр. Thd1", fix_go: "OK",
       undo: "↶ Отменить последнее исправление", did_you_mean: "Может быть:", fixing: "Пересчитываю остаток партии …", fix_failed: "Не получилось: ",
     },
@@ -221,11 +223,16 @@
       if ($("admin-ref").value) form.append("ref", $("admin-ref").value);
     }
     let resp, data;
+    const started = Date.now();
     try {
       resp = await fetch(API + "/api/process", { method: "POST", body: form });
-      data = await resp.json();
     } catch (e) {
-      return fail(t("e_network"));
+      // the host's own error pages (time-out) carry no CORS headers and look like a lost connection
+      return fail(Date.now() - started > 200000 ? t("e_server")(504) : t("e_network"));
+    }
+    try { data = await resp.json(); } catch (e) {
+      // not our JSON: the host answered (too large, took too long, crashed)
+      return fail(resp.status === 413 ? t("e_too_large") : t("e_server")(resp.status));
     }
     if (!resp.ok) {
       const code = data && data.error;

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Callable
 
+import time
+
 import chess
 
 from . import notation
@@ -39,8 +41,13 @@ class GameOutcome:
 
 def process_game(images: list[Image], provider: ModelProvider, settings: Settings,
                  budget_ok: Callable[[], bool] = lambda: True,
-                 on_call: Callable[[ModelCall], None] = lambda c: None) -> GameOutcome:
+                 on_call: Callable[[ModelCall], None] = lambda c: None,
+                 deadline: float | None = None) -> GameOutcome:
+    """`deadline` (time.monotonic()): stop asking the model again when time runs short,
+    so the answer arrives before the host cuts the request off."""
     calls: list[ModelCall] = []
+    if deadline is None:
+        deadline = time.monotonic() + settings.time_limit_seconds
 
     def record(call: ModelCall):
         calls.append(call)
@@ -65,6 +72,9 @@ def process_game(images: list[Image], provider: ModelProvider, settings: Setting
             break
         if not budget_ok():
             stopped = "budget"
+            break
+        if deadline - time.monotonic() < settings.recheck_reserve_seconds:
+            stopped = "time"
             break
         ply, tok_index = target
         asked.add(tok_index)
@@ -96,11 +106,15 @@ def _read(images, provider, record, budget_ok) -> GameReading:
         reading, call = provider.read_sheet(images)
         record(call)
         return reading
+    # the photos are read at the same time (each reading takes up to a minute)
+    from concurrent.futures import ThreadPoolExecutor
+    if getattr(provider, "parallel_ok", True):
+        with ThreadPoolExecutor(max_workers=len(images)) as pool:
+            results = list(pool.map(lambda img: provider.read_sheet([img]), images))
+    else:
+        results = [provider.read_sheet([img]) for img in images]
     readings = []
-    for i, img in enumerate(images):
-        if i and not budget_ok():
-            break
-        r, call = provider.read_sheet([img])
+    for i, (r, call) in enumerate(results):
         record(call)
         for sh in r.sheets:
             sh.image = i
@@ -153,15 +167,18 @@ def process_cascade(images: list[Image], make_provider: Callable[[str], ModelPro
     used: list[ModelCall] = []
     best: GameOutcome | None = None
     escalated = False
+    deadline = time.monotonic() + settings.time_limit_seconds
     for i, model in enumerate(models):
         last = i == len(models) - 1
         left = total_cap - len(used)
         if left <= 0:
             break
+        if i and deadline - time.monotonic() < settings.escalate_reserve_seconds:
+            break                       # not enough time left for the strong model to read again
         cap = left if last else min(left, settings.cascade_cheap_max_calls)
         stage = replace(settings, model_name=model, max_calls_per_game=cap)
         try:
-            out = process_game(images, make_provider(model), stage, budget_ok, on_call)
+            out = process_game(images, make_provider(model), stage, budget_ok, on_call, deadline)
         except BudgetExhausted:
             if best is None:
                 raise

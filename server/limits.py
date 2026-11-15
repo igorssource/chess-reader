@@ -83,6 +83,31 @@ class IpLimit:
     def count(self):
         self.kv.incr_float(self.key, 1, ttl=2 * 24 * 3600)
 
+    def take(self) -> bool:
+        """Count the game before it is read (one step in the store, so uploads sent at the
+        same moment cannot all pass). False = the limit is reached, nothing is counted."""
+        if self.limit <= 0:
+            return True
+        if self.kv.incr_float(self.key, 1, ttl=2 * 24 * 3600) > self.limit:
+            self.give_back()
+            return False
+        return True
+
+    def give_back(self):
+        if self.limit > 0:
+            self.kv.incr_float(self.key, -1, ttl=2 * 24 * 3600)
+
+
+class IpAttempts(IpLimit):
+    """Every upload that reaches the model, also one that fails (unreadable photo, model
+    error): such uploads cost money too. Generous, so that a real user with a few failed
+    photos never notices it: 3 x the game limit + 5 per day."""
+
+    def __init__(self, kv, ip: str):
+        super().__init__(kv, ip)
+        self.key = self.key.replace("ipgames:", "iptries:", 1)
+        self.limit = self.limit * 3 + 5 if self.limit > 0 else 0
+
 
 # ---- history per day (only the admin sees it, on docs/stats.html) ----
 # day:<date>    games_user, games_admin, cost_user, cost_admin (EUR, every model call,

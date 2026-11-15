@@ -159,7 +159,10 @@
     var token = get("admin_token");
     if (!token) { $("login").hidden = false; $("content").hidden = true; $("reload").hidden = true; return; }
     $("status").textContent = "Загружаю…";
-    fetch(API + "/api/stats?token=" + encodeURIComponent(token), { cache: "no-store" }).then(function (r) {
+    // the key goes in a header, not in the address; the old way only as a fallback while the server updates
+    fetch(API + "/api/stats", { cache: "no-store", headers: { "X-Admin-Token": token } }).then(function (r) {
+      return r.status === 403 ? fetch(API + "/api/stats?token=" + encodeURIComponent(token), { cache: "no-store" }) : r;
+    }).then(function (r) {
       if (r.status === 403) { throw new Error("key"); }
       if (!r.ok) { throw new Error("http " + r.status); }
       return r.json();

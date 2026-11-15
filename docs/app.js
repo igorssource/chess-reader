@@ -33,6 +33,7 @@
       missing: "fehlt auf dem Formular, aus der Stellung ergänzt", fill: "leeres Feld, aus der Stellung ergänzt",
       similar: "ähnlich geschriebener legaler Zug", alternative: "zweite Lesart des KI-Modells", exact: "",
       summary: (n, f, d) => `${n} Halbzüge · ${f} korrigiert · ${d} prüfen`, skipped: (s) => `Nicht verwendet: ${s}`,
+      e_ip_limit: (n) => `Für heute ist Schluss: Von deinem Internetanschluss wurden schon ${n} Partien gelesen – das ist das Tageslimit. Morgen geht es wieder. Deine gespeicherten Partien kannst du weiter ansehen und korrigieren.`,
       e_daily_limit: "Das Tageslimit ist erreicht. Bitte versuche es morgen wieder.",
       e_model_error: "Das Formular konnte nicht gelesen werden: ", e_network: "Keine Verbindung zum Server.",
       e_too_large: "Das Foto ist zu groß.", e_other: "Fehler: ",
@@ -66,6 +67,7 @@
       missing: "нет на бланке, восстановлен по позиции", fill: "пустая клетка, ход восстановлен по позиции",
       similar: "выбран легальный ход, похожий по написанию", alternative: "второй вариант прочтения от модели", exact: "",
       summary: (n, f, d) => `${n} полуходов · ${f} исправлено · ${d} проверить`, skipped: (s) => `Не использовано: ${s}`,
+      e_ip_limit: (n) => `На сегодня всё: с вашего интернет-подключения уже распознано ${n} партий — это дневной лимит. Завтра можно снова. Сохранённые партии можно и дальше смотреть и исправлять.`,
       e_daily_limit: "Дневной лимит исчерпан. Попробуйте завтра.",
       e_model_error: "Не удалось прочитать бланк: ", e_network: "Нет связи с сервером.",
       e_too_large: "Фото слишком большое.", e_other: "Ошибка: ",
@@ -226,6 +228,7 @@
     try { data = await resp.json(); } catch (e) { return fail(resp.status === 413 ? t("e_too_large") : t("e_server")(resp.status)); }
     if (!resp.ok) {
       const code = data && data.error;
+      if (code === "ip_limit") return fail(t("e_ip_limit")(data.limit || ""));
       if (code === "daily_limit") return fail(t("e_daily_limit"));
       if (code === "model_error") return fail(t("e_model_error") + (data.message || ""));
       if (code === "too_large") return fail(t("e_too_large"));

@@ -39,6 +39,7 @@
       fill: "Leeres Feld: Zug aus der Stellung ergänzt.", similar: "Ähnlich geschriebener legaler Zug gewählt.", alternative: "Vom KI-Modell als zweite Lesart vorgeschlagen.", exact: "Wie geschrieben.",
       summary: (n, f, d) => `${n} Halbzüge · ${f} automatisch korrigiert · ${d} bitte prüfen`,
       skipped: (s) => `Nicht verwendete Felder: ${s}`,
+      e_ip_limit: (n) => `Für heute ist Schluss: Von deinem Internetanschluss wurden schon ${n} Partien gelesen – das ist das Tageslimit. Morgen geht es wieder. Deine gespeicherten Partien kannst du weiter ansehen und korrigieren.`,
       e_daily_limit: "Das Tageslimit ist erreicht. Bitte versuche es morgen wieder.",
       e_model_error: "Das Formular konnte nicht gelesen werden: ", e_network: "Keine Verbindung zum Server.",
       e_too_large: "Das Foto ist zu groß.", e_other: "Fehler: ",
@@ -74,6 +75,7 @@
       fill: "Пустая клетка: ход восстановлен по позиции.", similar: "Выбран легальный ход, похожий по написанию.", alternative: "Второй вариант прочтения от модели.", exact: "Как написано.",
       summary: (n, f, d) => `${n} полуходов · ${f} исправлено автоматически · ${d} проверьте`,
       skipped: (s) => `Неиспользованные клетки: ${s}`,
+      e_ip_limit: (n) => `На сегодня всё: с вашего интернет-подключения уже распознано ${n} партий — это дневной лимит. Завтра можно снова. Сохранённые партии можно и дальше смотреть и исправлять.`,
       e_daily_limit: "Дневной лимит исчерпан. Попробуйте завтра.",
       e_model_error: "Не удалось прочитать бланк: ", e_network: "Нет связи с сервером.",
       e_too_large: "Фото слишком большое.", e_other: "Ошибка: ",
@@ -250,6 +252,7 @@
     }
     if (!resp.ok) {
       const code = data && data.error;
+      if (code === "ip_limit") return fail(t("e_ip_limit")(data.limit || ""));
       if (code === "daily_limit") return fail(t("e_daily_limit"));
       if (code === "model_error") return fail(t("e_model_error") + (data.message || ""));
       if (code === "too_large") return fail(t("e_too_large"));

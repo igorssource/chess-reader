@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import os
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,15 @@ LOG_KEY = "games"
 # limit applies again by itself. DAILY_BUDGET_EUR set in Vercel always wins.
 DAY_LIMITS = {
     "2026-11-15": 5.0,      # Igor: club members try the site today
+}
+
+
+# Games per IP address per day (Berlin date). One upload = one game, even with two
+# photos; fixing a move by hand (no model) is not counted; admin test mode is exempt.
+# GAMES_PER_IP_PER_DAY set in Vercel always wins over these values.
+GAMES_PER_IP_DEFAULT = 5
+GAMES_PER_IP_DAYS = {
+    "2026-11-15": 10,       # Igor: first day for the club members
 }
 
 
@@ -42,6 +52,36 @@ class Budget:
 
     def add(self, call: ModelCall):
         self.kv.incr_float(self.key, call.cost_eur, ttl=3 * 24 * 3600)
+
+
+def client_ip(headers, fallback: str | None = None) -> str:
+    """Vercel puts the visitor's real address into x-real-ip / x-forwarded-for
+    (it overwrites values the browser sends, so they can't be faked there)."""
+    ip = (headers.get("x-real-ip") or "").strip()
+    if not ip:
+        ip = (headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return ip or fallback or "unknown"
+
+
+class IpLimit:
+    def __init__(self, kv, ip: str):
+        self.kv = kv
+        # store only a short hash, not the address itself
+        self.key = f"ipgames:{today()}:{hashlib.sha256(ip.encode()).hexdigest()[:16]}"
+        env = os.environ.get("GAMES_PER_IP_PER_DAY")
+        if env:
+            self.limit = int(env)
+        else:
+            self.limit = GAMES_PER_IP_DAYS.get(today(), GAMES_PER_IP_DEFAULT)
+
+    def used(self) -> int:
+        return int(self.kv.get_float(self.key))
+
+    def ok(self) -> bool:
+        return self.limit <= 0 or self.used() < self.limit
+
+    def count(self):
+        self.kv.incr_float(self.key, 1, ttl=2 * 24 * 3600)
 
 
 def log_game(kv, entry: dict, keep: int = 2000):

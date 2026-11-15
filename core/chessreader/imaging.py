@@ -11,6 +11,7 @@ from .model.base import Image
 
 READ_SIDE = 1600          # the model sees about this many pixels anyway
 CROP_SIDE = 1200          # longest side of a zoomed crop
+MAX_PIXELS = 60_000_000   # far above any phone photo; larger ones are not unpacked
 
 try:
     from PIL import Image as _PIL, ImageOps as _Ops
@@ -20,6 +21,8 @@ except ImportError:       # pragma: no cover
 
 def _open(data: bytes):
     im = _PIL.open(io.BytesIO(data))
+    if im.width * im.height > MAX_PIXELS:      # a small file can claim a gigantic picture
+        raise ValueError("picture too large")
     im = _Ops.exif_transpose(im)
     return im.convert("RGB")
 

@@ -28,7 +28,7 @@ def test_process_and_stats():
 def test_daily_limit():
     os.environ["DAILY_BUDGET_EUR"] = "0"
     try:
-        r = client.post("/api/process", files={"files": ("a.jpg", b"x", "image/jpeg")})
+        r = client.post("/api/process", files={"files": ("a.jpg", b"\xff\xd8x", "image/jpeg")})
         assert r.status_code == 429 and r.json()["error"] == "daily_limit"
     finally:
         del os.environ["DAILY_BUDGET_EUR"]
@@ -118,3 +118,33 @@ def test_day_history_splits_users_and_admin():
     row = client.get("/api/stats?token=t").json()["days"][0]
     assert (row["games_user"], row["games_admin"], row["ips"], row["max_per_ip"]) == (3, 1, 2, 2)
     assert len(kv.read_log(LOG_KEY, 10)) == 4
+
+
+def test_security_guards():
+    from concurrent.futures import ThreadPoolExecutor
+    from server.kv import get_kv
+    kv = get_kv()
+    photos_before = len(kv.read_log("games", 5000))
+    # a file that is not a photo is refused before anything is stored or read
+    r = client.post("/api/process", files={"files": ("a.jpg", b"<html>not a photo", "image/jpeg")})
+    assert r.status_code == 400 and r.json()["error"] == "not_image"
+    assert len(kv.read_log("games", 5000)) == photos_before
+    # an unknown notation language does not break the upload
+    f = {"files": ("a.jpg", b"\xff\xd8fake", "image/jpeg")}
+    assert client.post("/api/process", files=f, data={"language": "xx"},
+                       headers={"x-real-ip": "192.0.2.50"}).status_code == 200
+    # uploads sent at the same moment cannot all slip under the per-IP limit
+    os.environ["GAMES_PER_IP_PER_DAY"] = "2"
+    try:
+        h = {"x-real-ip": "192.0.2.77"}
+        with ThreadPoolExecutor(8) as ex:
+            codes = list(ex.map(lambda _: client.post("/api/process", files=f, headers=h).status_code, range(8)))
+        assert codes.count(200) == 2 and codes.count(429) == 6
+    finally:
+        del os.environ["GAMES_PER_IP_PER_DAY"]
+    # the admin token is accepted in a header; a wrong or empty one is refused
+    assert client.get("/api/stats", headers={"x-admin-token": "t"}).status_code == 200
+    assert client.get("/api/stats", headers={"x-admin-token": "tt"}).status_code == 403
+    assert client.get("/api/stats").status_code == 403
+    # absurdly long games are refused by the model-free routes
+    assert client.post("/api/pgn", json={"header": {}, "moves": [{"san": "e4"}] * 1001}).status_code == 400

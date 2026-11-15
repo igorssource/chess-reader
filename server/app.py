@@ -8,6 +8,7 @@ GET  /api/stats     usage statistics (needs ADMIN_TOKEN)
 """
 from __future__ import annotations
 
+import hmac
 import os
 import time
 from dataclasses import replace
@@ -25,6 +26,7 @@ from chessreader.model import get_provider
 from chessreader.model.anthropic_provider import ModelError
 from chessreader.imaging import prepare
 from chessreader.model.base import Image
+from chessreader.notation import LANGUAGES
 from chessreader.openings import detect as detect_opening
 from chessreader.pgn_export import build_pgn
 from chessreader.pipeline import BudgetExhausted, process_cascade, process_game
@@ -33,12 +35,31 @@ from chessreader.review import (ReviewError, cell_from_dict, cells_from_plies, c
 from chessreader.sheet import Header
 
 from .kv import get_kv
-from .limits import Budget, DayStats, IpLimit, client_ip, day_history, ip_tag, log_game, stats
+from .limits import Budget, DayStats, IpAttempts, IpLimit, client_ip, day_history, ip_tag, log_game, stats
 from .photos import new_game_id, store_photo
 from .references import REFERENCES, compare
 
 MAX_IMAGES = 2              # the sheet + a continuation page or the opponent's sheet
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
+MAX_PLIES = 1000            # no real game is longer; keeps the model-free routes cheap
+MAX_CELLS = 2500
+
+
+def _is_admin(value: str | None) -> bool:
+    """True only for the exact ADMIN_TOKEN (compared in constant time)."""
+    admin = os.environ.get("ADMIN_TOKEN") or ""
+    return bool(admin) and bool(value) and hmac.compare_digest(value.encode(), admin.encode())
+
+
+def _image_type(data: bytes) -> str | None:
+    """The real type from the first bytes of the file (the browser's claim is not trusted)."""
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 app = FastAPI(title="Chess Reader API")
 app.add_middleware(
@@ -79,11 +100,11 @@ def health():
 async def process(request: Request, files: list[UploadFile] = File(...), language: str = Form(None),
                   admin: str = Form(None), model: str = Form(None), ref: str = Form(None)):
     s = Settings()
-    if language:
+    if language in LANGUAGES:      # anything else: the default stays
         s.notation_language = language
     # Admin test mode (hidden in the page): choose the model per upload and compare
     # the result with a reference game. Needs ADMIN_TOKEN, so normal users can't use it.
-    is_admin = bool(admin) and admin == os.environ.get("ADMIN_TOKEN")
+    is_admin = _is_admin(admin)
     if (model or ref) and not is_admin:
         return _err(403, "forbidden", "admin token required")
     if model:
@@ -99,7 +120,9 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         data = await f.read()
         if len(data) > MAX_IMAGE_BYTES:
             return _err(413, "too_large", "photo is too large")
-        mt = f.content_type if f.content_type in ("image/jpeg", "image/png", "image/webp") else "image/jpeg"
+        mt = _image_type(data)
+        if mt is None:             # not a photo: never stored, never sent to the model
+            return _err(400, "not_image", "this file is not a photo (JPEG, PNG or WebP)")
         images.append(prepare(Image(data, mt)))   # smaller copy for reading, full size kept for zoomed crops
 
     kv = get_kv()
@@ -107,16 +130,30 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
     # games per IP address per day (admin test mode is not counted)
     ip = client_ip(request.headers, request.client and request.client.host)
     ip_limit = None if is_admin else IpLimit(kv, ip)
+    attempts = None if is_admin else IpAttempts(kv, ip)
     day = DayStats(kv, is_admin, ip)        # history per day for the admin's statistics
 
     def on_call(call):
         budget.add(call)
         day.cost(call)
 
-    if ip_limit and not ip_limit.ok():
+    def ip_refused():
         day.event("ip_limit_hits")
         return JSONResponse({"error": "ip_limit", "message": "daily limit per user reached",
                              "limit": ip_limit.limit}, status_code=429)
+
+    if ip_limit and not ip_limit.ok():
+        return ip_refused()
+    if not budget.ok():             # checked before anything is stored or sent to the model
+        day.event("budget_hits")
+        return _err(429, "daily_limit", "daily limit reached")
+    # The place is taken BEFORE the reading starts, so many uploads sent at the same moment
+    # cannot all slip under the limit; it is given back if the game could not be read.
+    # Uploads that fail are counted too (separately), so they cannot be repeated without end.
+    if attempts and not attempts.take():
+        return ip_refused()
+    if ip_limit and not ip_limit.take():
+        return ip_refused()
     game_id = new_game_id()
     photo_refs, photo_errors = [], []
     if s.store_photos:
@@ -135,14 +172,20 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         else:
             outcome = process_game(images, get_provider(s), s, budget_ok=budget.ok, on_call=on_call)
     except BudgetExhausted:
+        if ip_limit:
+            ip_limit.give_back()
         day.event("budget_hits")
         return _err(429, "daily_limit", "daily limit reached")
     except ModelError as e:
+        if ip_limit:
+            ip_limit.give_back()
         day.event("errors")
         return _err(502, "model_error", str(e))
+    except Exception:
+        if ip_limit:
+            ip_limit.give_back()   # only a game that was actually read counts
+        raise
 
-    if ip_limit:
-        ip_limit.count()        # only a game that was actually read counts
     day.game()
     r = outcome.result
     accuracy = compare(ref, [p.san for p in r.plies]) if ref else None
@@ -199,6 +242,8 @@ class PgnRequest(BaseModel):
 @app.post("/api/pgn")
 def pgn(req: PgnRequest):
     s = Settings()
+    if len(req.moves) > MAX_PLIES:
+        raise HTTPException(400, "too many moves")
     board = chess.Board()
     plies = []
     for k, m in enumerate(req.moves):
@@ -229,6 +274,8 @@ class RedecodeRequest(BaseModel):
 @app.post("/api/redecode")
 def redecode_route(req: RedecodeRequest):
     s = Settings()
+    if len(req.plies) > MAX_PLIES or len(req.cells or []) > MAX_CELLS:
+        raise HTTPException(400, "too many moves")
     if req.cells is None:
         cells, plies = cells_from_plies(req.plies)
     else:
@@ -263,8 +310,8 @@ def _opening(sans):
 
 @app.get("/api/stats")
 def get_stats(request: Request, token: str = ""):
-    admin = os.environ.get("ADMIN_TOKEN")
-    if not admin or token != admin:
+    # the page sends the token in a header (kept out of addresses and logs); ?token= still works
+    if not _is_admin(request.headers.get("x-admin-token") or token):
         return _err(403, "forbidden", "admin token required")
     kv = get_kv()
     s = Settings()

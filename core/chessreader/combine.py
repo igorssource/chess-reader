@@ -51,9 +51,29 @@ def classify(sheets: list[Sheet]) -> list[Sheet]:
         if nums and last and min(nums) > last - 1:
             out.append(replace(s, role="continuation"))
             last = max(nums)
+        elif nums and last and not _starts_game(s):
+            # a second page whose printed numbers start again at 1: its first move cannot
+            # be played from the starting position, so it is not the opponent's record
+            shift = last - min(nums) + 1
+            plies = [replace(p, number=p.number + shift if p.number else p.number) for p in s.plies]
+            out.append(replace(s, role="continuation", plies=plies))
+            last = max(nums) + shift
         else:
             out.append(replace(s, role="opponent"))
     return out
+
+
+def _starts_game(sheet: Sheet) -> bool:
+    """Could the first written move be White's first move of a game (German or English)?"""
+    first = next((p for p in sheet.plies if p.kind == "move" and p.text), None)
+    if first is None:
+        return True
+    board = chess.Board()
+    for code in ("de", "en"):
+        parsed = notation.parse(first.text, notation.LANGUAGES[code])
+        if parsed and notation.matches(board, parsed):
+            return True
+    return False
 
 
 def merge_headers(headers: list[Header]) -> Header:

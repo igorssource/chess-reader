@@ -191,3 +191,18 @@ def test_strong_model_failure_keeps_cheap_result():
     s.cascade_models = ["cheap", "strong"]; s.cascade_cheap_max_calls = 1
     out = process_cascade([Image(b"a")], lambda m: FakeProvider(s, reading=r) if m == "cheap" else Broken(s), s)
     assert out.result.plies and len(out.calls) == 1
+
+
+def test_second_page_numbered_from_one_is_a_continuation():
+    full = cells(SANS)
+    page1 = Sheet(plies=full[:20], image=0)                  # moves 1-10
+    rest = [RawPly(**c.__dict__) for c in full[20:]]
+    for k, c in enumerate(rest):                             # the new page starts again at 1
+        c.number = k // 2 + 1
+    page2 = Sheet(plies=rest, image=1)
+    out = classify([page1, page2])
+    assert out[1].role == "continuation" and out[1].plies[0].number == 11
+    r = decode(build_tokens(GameReading(Header(), out), "de"), "de")
+    assert [p.san for p in r.plies] == SANS
+    # the opponent's sheet (also starting at 1, but with a first move) stays the opponent's
+    assert classify([page1, Sheet(plies=cells(SANS, "en"), image=1)])[1].role == "opponent"

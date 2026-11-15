@@ -33,7 +33,7 @@ from chessreader.review import (ReviewError, cell_from_dict, cells_from_plies, c
 from chessreader.sheet import Header
 
 from .kv import get_kv
-from .limits import Budget, IpLimit, client_ip, log_game, stats
+from .limits import Budget, DayStats, IpLimit, client_ip, day_history, ip_tag, log_game, stats
 from .photos import new_game_id, store_photo
 from .references import REFERENCES, compare
 
@@ -105,8 +105,16 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
     kv = get_kv()
     budget = Budget(kv, s)
     # games per IP address per day (admin test mode is not counted)
-    ip_limit = None if is_admin else IpLimit(kv, client_ip(request.headers, request.client and request.client.host))
+    ip = client_ip(request.headers, request.client and request.client.host)
+    ip_limit = None if is_admin else IpLimit(kv, ip)
+    day = DayStats(kv, is_admin, ip)        # history per day for the admin's statistics
+
+    def on_call(call):
+        budget.add(call)
+        day.cost(call)
+
     if ip_limit and not ip_limit.ok():
+        day.event("ip_limit_hits")
         return JSONResponse({"error": "ip_limit", "message": "daily limit per user reached",
                              "limit": ip_limit.limit}, status_code=429)
     game_id = new_game_id()
@@ -123,16 +131,19 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         if not model and len(s.cascade_models) > 1:
             # cheap model first, strong model only if the result looks unsure
             outcome = process_cascade(images, lambda m: get_provider(replace(s, model_name=m)), s,
-                                      budget_ok=budget.ok, on_call=budget.add)
+                                      budget_ok=budget.ok, on_call=on_call)
         else:
-            outcome = process_game(images, get_provider(s), s, budget_ok=budget.ok, on_call=budget.add)
+            outcome = process_game(images, get_provider(s), s, budget_ok=budget.ok, on_call=on_call)
     except BudgetExhausted:
+        day.event("budget_hits")
         return _err(429, "daily_limit", "daily limit reached")
     except ModelError as e:
+        day.event("errors")
         return _err(502, "model_error", str(e))
 
     if ip_limit:
         ip_limit.count()        # only a game that was actually read counts
+    day.game()
     r = outcome.result
     accuracy = compare(ref, [p.san for p in r.plies]) if ref else None
     cost_by_model: dict = {}
@@ -148,7 +159,7 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
         "plies": len(r.plies), "doubtful": sum(p.status == "doubtful" for p in r.plies),
         "fixed": sum(p.status == "fixed" for p in r.plies), "photos": [p for p in photo_refs if p],
         **({"photo_error": photo_errors[0]} if photo_errors else {}),
-        **(accuracy or {}), **({"admin": True} if is_admin else {}),
+        **(accuracy or {}), **({"admin": True} if is_admin else {"ip": ip_tag(ip)}),
     })
     return {
         "game_id": game_id,
@@ -263,6 +274,7 @@ def get_stats(request: Request, token: str = ""):
     out["daily_budget_eur"] = b.limit
     out["max_calls_per_game"] = s.max_calls_per_game
     out["games_per_ip_today"] = IpLimit(kv, "-").limit
+    out["days"] = day_history(kv)
     return out
 
 

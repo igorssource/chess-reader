@@ -84,6 +84,94 @@ class IpLimit:
         self.kv.incr_float(self.key, 1, ttl=2 * 24 * 3600)
 
 
+# ---- history per day (only the admin sees it, on docs/stats.html) ----
+# day:<date>    games_user, games_admin, cost_user, cost_admin (EUR, every model call,
+#               also of games that failed), ip_limit_hits, budget_hits, errors
+# dayip:<date>  shortened address hash -> games read (real users only)
+DAY_TTL = 400 * 24 * 3600
+
+
+def ip_tag(ip: str) -> str:
+    """Short salted hash: tells visitors apart without keeping the address itself."""
+    salt = os.environ.get("STATS_SALT") or os.environ.get("ADMIN_TOKEN") or ""
+    return hashlib.sha256(f"{salt}|{ip}".encode()).hexdigest()[:8]
+
+
+class DayStats:
+    """Counters for the admin's statistics. A failure here must never break an upload."""
+
+    def __init__(self, kv, is_admin: bool, ip: str | None = None):
+        self.kv, self.who, self.ip = kv, "admin" if is_admin else "user", ip
+        self.date = today()
+
+    def _incr(self, key: str, field: str, amount: float = 1):
+        try:
+            self.kv.hincr(key, field, amount, DAY_TTL)
+        except Exception:       # noqa: BLE001  statistics only
+            pass
+
+    def cost(self, call: ModelCall):
+        self._incr(f"day:{self.date}", f"cost_{self.who}", call.cost_eur)
+
+    def game(self):
+        self._incr(f"day:{self.date}", f"games_{self.who}")
+        if self.who == "user" and self.ip:
+            self._incr(f"dayip:{self.date}", ip_tag(self.ip))
+
+    def event(self, name: str):
+        if self.who == "user":
+            self._incr(f"day:{self.date}", name)
+
+
+def _ip_summary(per_ip: dict) -> dict:
+    counts = sorted((int(v) for v in per_ip.values() if v >= 1), reverse=True)
+    hist: dict = {}
+    for c in counts:
+        hist[c] = hist.get(c, 0) + 1
+    return {"ips": len(counts), "max_per_ip": counts[0] if counts else 0,
+            "per_ip": counts[:50], "ip_histogram": dict(sorted(hist.items()))}
+
+
+def day_history(kv, days: int = 60) -> list:
+    """One row per day, newest first. Days before this history existed are filled from
+    the game log (successful games only) and the per-IP limit counters (kept 2 days)."""
+    now = dt.datetime.now(TZ)
+    dates = [(now - dt.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
+    try:
+        agg = kv.hgetall_many([f"day:{d}" for d in dates])
+        ips = kv.hgetall_many([f"dayip:{d}" for d in dates])
+    except Exception:           # noqa: BLE001
+        agg, ips = [{} for _ in dates], [{} for _ in dates]
+    from_log: dict = {}
+    for g in kv.read_log(LOG_KEY, 2000):
+        d = dt.datetime.fromtimestamp(g.get("ts", 0), TZ).strftime("%Y-%m-%d")
+        who = "admin" if g.get("admin") or g.get("ref") else "user"
+        row = from_log.setdefault(d, {})
+        row[f"games_{who}"] = row.get(f"games_{who}", 0) + 1
+        row[f"cost_{who}"] = row.get(f"cost_{who}", 0.0) + g.get("cost_eur", 0.0)
+    out = []
+    for i, d in enumerate(dates):
+        a, lg, per_ip = agg[i], from_log.get(d, {}), ips[i]
+        if i < 2:               # the limit counters still exist for today and yesterday
+            try:
+                old = kv.counters(f"ipgames:{d}:")
+                if sum(old.values()) > sum(per_ip.values()):
+                    per_ip = old
+            except Exception:   # noqa: BLE001
+                pass
+        row = {"date": d}
+        for f in ("games_user", "games_admin"):
+            row[f] = int(max(a.get(f, 0), lg.get(f, 0)))
+        for f in ("cost_user", "cost_admin"):
+            row[f] = round(max(a.get(f, 0.0), lg.get(f, 0.0)), 4)
+        for f in ("ip_limit_hits", "budget_hits", "errors"):
+            row[f] = int(a.get(f, 0))
+        row.update(_ip_summary(per_ip))
+        if any(v for k, v in row.items() if k not in ("date", "per_ip", "ip_histogram")):
+            out.append(row)
+    return out
+
+
 def log_game(kv, entry: dict, keep: int = 2000):
     kv.push_log(LOG_KEY, entry, keep)
 

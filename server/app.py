@@ -251,8 +251,9 @@ def get_stats(request: Request, token: str = ""):
     kv = get_kv()
     s = Settings()
     out = stats(kv, today_prefix=_today_start())
-    out["spent_today_eur"] = round(Budget(kv, s).spent(), 4)
-    out["daily_budget_eur"] = s.daily_budget_eur
+    b = Budget(kv, s)
+    out["spent_today_eur"] = round(b.spent(), 4)
+    out["daily_budget_eur"] = b.limit
     out["max_calls_per_game"] = s.max_calls_per_game
     return out
 

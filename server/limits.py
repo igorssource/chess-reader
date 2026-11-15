@@ -10,6 +10,12 @@ from chessreader.model.base import ModelCall
 TZ = ZoneInfo("Europe/Berlin")
 LOG_KEY = "games"
 
+# One-off higher limits for single days (Berlin date -> EUR); the next day the normal
+# DAILY_BUDGET_EUR applies again by itself.
+DAY_LIMITS = {
+    "2026-11-15": 5.0,      # Igor: club members try the site today
+}
+
 
 def today() -> str:
     return dt.datetime.now(TZ).strftime("%Y-%m-%d")
@@ -20,15 +26,16 @@ class Budget:
         self.kv = kv
         self.settings = settings
         self.key = f"spend:{today()}"
+        self.limit = DAY_LIMITS.get(today(), settings.daily_budget_eur)
 
     def spent(self) -> float:
         return self.kv.get_float(self.key)
 
     def remaining(self) -> float:
-        return max(0.0, self.settings.daily_budget_eur - self.spent())
+        return max(0.0, self.limit - self.spent())
 
     def ok(self) -> bool:
-        return self.spent() < self.settings.daily_budget_eur
+        return self.spent() < self.limit
 
     def add(self, call: ModelCall):
         self.kv.incr_float(self.key, call.cost_eur, ttl=3 * 24 * 3600)

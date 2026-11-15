@@ -33,7 +33,7 @@ from chessreader.review import (ReviewError, cell_from_dict, cells_from_plies, c
 from chessreader.sheet import Header
 
 from .kv import get_kv
-from .limits import Budget, log_game, stats
+from .limits import Budget, IpLimit, client_ip, log_game, stats
 from .photos import new_game_id, store_photo
 from .references import REFERENCES, compare
 
@@ -104,6 +104,11 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
 
     kv = get_kv()
     budget = Budget(kv, s)
+    # games per IP address per day (admin test mode is not counted)
+    ip_limit = None if is_admin else IpLimit(kv, client_ip(request.headers, request.client and request.client.host))
+    if ip_limit and not ip_limit.ok():
+        return JSONResponse({"error": "ip_limit", "message": "daily limit per user reached",
+                             "limit": ip_limit.limit}, status_code=429)
     game_id = new_game_id()
     photo_refs, photo_errors = [], []
     if s.store_photos:
@@ -126,6 +131,8 @@ async def process(request: Request, files: list[UploadFile] = File(...), languag
     except ModelError as e:
         return _err(502, "model_error", str(e))
 
+    if ip_limit:
+        ip_limit.count()        # only a game that was actually read counts
     r = outcome.result
     accuracy = compare(ref, [p.san for p in r.plies]) if ref else None
     cost_by_model: dict = {}
@@ -255,6 +262,7 @@ def get_stats(request: Request, token: str = ""):
     out["spent_today_eur"] = round(b.spent(), 4)
     out["daily_budget_eur"] = b.limit
     out["max_calls_per_game"] = s.max_calls_per_game
+    out["games_per_ip_today"] = IpLimit(kv, "-").limit
     return out
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 from zoneinfo import ZoneInfo
 
 from chessreader.config import Settings
@@ -11,7 +12,7 @@ TZ = ZoneInfo("Europe/Berlin")
 LOG_KEY = "games"
 
 # One-off higher limits for single days (Berlin date -> EUR); the next day the normal
-# DAILY_BUDGET_EUR applies again by itself.
+# limit applies again by itself. DAILY_BUDGET_EUR set in Vercel always wins.
 DAY_LIMITS = {
     "2026-11-15": 5.0,      # Igor: club members try the site today
 }
@@ -26,7 +27,9 @@ class Budget:
         self.kv = kv
         self.settings = settings
         self.key = f"spend:{today()}"
-        self.limit = DAY_LIMITS.get(today(), settings.daily_budget_eur)
+        self.limit = settings.daily_budget_eur
+        if "DAILY_BUDGET_EUR" not in os.environ:
+            self.limit = DAY_LIMITS.get(today(), self.limit)
 
     def spent(self) -> float:
         return self.kv.get_float(self.key)

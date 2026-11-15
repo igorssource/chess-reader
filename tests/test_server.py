@@ -90,3 +90,31 @@ def test_games_per_ip_limit():
 def limits_kv():
     from server.kv import MemoryKV
     return MemoryKV()
+
+
+def test_day_history_splits_users_and_admin():
+    from server.kv import get_kv
+    from server.limits import LOG_KEY, today
+    kv = get_kv()
+    kv.data.clear()
+    f = {"files": ("a.jpg", b"\xff\xd8fake", "image/jpeg")}
+    os.environ["GAMES_PER_IP_PER_DAY"] = "2"
+    try:
+        for ip, n in (("1.1.1.1", 2), ("2.2.2.2", 1)):
+            for _ in range(n):
+                assert client.post("/api/process", files=f, headers={"x-real-ip": ip}).status_code == 200
+        assert client.post("/api/process", files=f, headers={"x-real-ip": "1.1.1.1"}).status_code == 429
+        assert client.post("/api/process", files=f, data={"admin": "t"},
+                           headers={"x-real-ip": "1.1.1.1"}).status_code == 200
+    finally:
+        del os.environ["GAMES_PER_IP_PER_DAY"]
+    row = client.get("/api/stats?token=t").json()["days"][0]
+    assert row["date"] == today()
+    assert (row["games_user"], row["games_admin"], row["ips"], row["max_per_ip"]) == (3, 1, 2, 2)
+    assert row["ip_histogram"] == {"1": 1, "2": 1} and row["ip_limit_hits"] == 1
+    assert "1.1.1.1" not in str(kv.data)                     # no plain address is stored
+    # a day recorded before this history existed: rebuilt from the log and the limit counters
+    del kv.data[f"day:{today()}"], kv.data[f"dayip:{today()}"]
+    row = client.get("/api/stats?token=t").json()["days"][0]
+    assert (row["games_user"], row["games_admin"], row["ips"], row["max_per_ip"]) == (3, 1, 2, 2)
+    assert len(kv.read_log(LOG_KEY, 10)) == 4

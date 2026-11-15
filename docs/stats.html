@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Chess Reader: статистика</title>
+<!-- Admin only: shows nothing without ADMIN_TOKEN (the numbers come from /api/stats, which checks it). -->
+<style>
+  :root { --bg: #f3f1ea; --card: #fff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e1da; --accent: #1f5f8b;
+    --soft: #e4eef5; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #22221f; --text: #ecebe6; --muted: #a3a29c; --line: #3a3934; --accent: #6fb0e0;
+      --soft: #1d2c38; --bad: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 12px 12px 40px; }
+  h1 { font-size: 1.15rem; margin: 4px 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  h2 { font-size: .95rem; margin: 18px 0 6px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tile b { display: block; font-size: 1.5rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  .tile span { color: var(--muted); font-size: .8rem; }
+  .muted { color: var(--muted); font-size: .82rem; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 7px 4px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: .72rem; font-weight: 600; color: var(--muted); }
+  th:first-child, td:first-child { text-align: left; }
+  tr.day { cursor: pointer; }
+  tr.open td { background: var(--soft); }
+  tr.detail td { text-align: left; white-space: normal; font-size: .84rem; background: var(--soft); }
+  .bar { display: inline-block; height: 8px; background: var(--accent); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+  button, input { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button { cursor: pointer; }
+  input { width: 100%; margin: 8px 0; }
+  .err { color: var(--bad); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1><span>Статистика Chess Reader</span><button id="reload" type="button" hidden>Обновить</button></h1>
+
+  <div id="login" class="card" hidden>
+    <b>Только для администратора</b>
+    <p class="muted">Введите админ-ключ. Он запомнится только в этом браузере.</p>
+    <input id="token" type="password" autocomplete="off" placeholder="Админ-ключ">
+    <button id="enter" type="button">Показать</button>
+    <p id="login-err" class="err" hidden></p>
+  </div>
+
+  <div id="content" hidden>
+    <h2 id="today-title">Сегодня</h2>
+    <div class="tiles" id="tiles"></div>
+    <p class="muted" id="today-note"></p>
+
+    <h2>По дням</h2>
+    <div class="card" style="padding: 4px 8px;">
+      <table>
+        <thead><tr><th>День</th><th>Бланки</th><th>Людей</th><th>Макс.</th><th>€ польз.</th><th>€ тесты</th></tr></thead>
+        <tbody id="days"></tbody>
+      </table>
+    </div>
+    <p class="muted">Нажмите на день, чтобы увидеть подробности. «Бланки» и «€ польз.» считаются без тест-режима.
+      «Людей» это число разных адресов (IP): один адрес может быть общим, например Wi-Fi в клубе.
+      «Макс.» показывает, сколько партий прочитал самый активный адрес.
+      Сами адреса не хранятся, только короткий шифр.</p>
+    <p class="muted" id="avg"></p>
+    <p><a href="./">На сайт</a> · <a href="#" id="logout">Забыть ключ на этом устройстве</a></p>
+  </div>
+  <p id="status" class="muted"></p>
+</main>
+<script src="config.js"></script>
+<script>
+(function () {
+  "use strict";
+  var API = window.CHESS_READER_API || "";
+  function $(id) { return document.getElementById(id); }
+  function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+  function eur(x) { return (x || 0).toFixed(2).replace(".", ",") + " €"; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function plural(n, a, b, c) {
+    var m10 = n % 10, m100 = n % 100;
+    return m10 === 1 && m100 !== 11 ? a : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c);
+  }
+  function dayName(d) {
+    var p = d.split("-");
+    var wd = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"][new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()];
+    return p[2] + "." + p[1] + " " + wd;
+  }
+
+  // the main page's test mode stores the key under the same name
+  var m = location.hash.match(/admin=([^&]+)/);
+  if (m) { set("admin_token", decodeURIComponent(m[1])); history.replaceState(null, "", location.pathname); }
+
+  function tile(value, label) { return '<div class="card tile"><b>' + esc(value) + "</b><span>" + esc(label) + "</span></div>"; }
+
+  function detail(r) {
+    var lines = [];
+    var hist = r.ip_histogram || {}, keys = Object.keys(hist).map(Number).sort(function (a, b) { return b - a; });
+    var most = Math.max.apply(null, keys.map(function (k) { return hist[k]; }).concat([1]));
+    if (keys.length) {
+      lines.push("<b>Сколько партий читал один адрес:</b>");
+      keys.forEach(function (k) {
+        var n = hist[k];
+        lines.push('<span class="bar" style="width:' + Math.round(70 * n / most + 6) + 'px"></span>' +
+          k + " " + plural(k, "партия", "партии", "партий") + ": " + n + " " + plural(n, "адрес", "адреса", "адресов"));
+      });
+    } else {
+      lines.push("По адресам данных за этот день нет.");
+    }
+    lines.push("Отказов «лимит на человека»: " + (r.ip_limit_hits || 0) +
+      " · отказов «дневной бюджет»: " + (r.budget_hits || 0) + " · сбоев модели: " + (r.errors || 0));
+    if (r.games_user) lines.push("В среднем " + eur(r.cost_user / r.games_user) + " за партию пользователя.");
+    lines.push("Тест-режим: " + r.games_admin + " " + plural(r.games_admin, "партия", "партии", "партий") + ", " + eur(r.cost_admin) + ".");
+    return lines.join("<br>");
+  }
+
+  function render(d) {
+    var days = d.days || [];
+    var todayStr = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date());
+    var t = days.filter(function (r) { return r.date === todayStr; })[0] ||
+      { games_user: 0, games_admin: 0, cost_user: 0, cost_admin: 0, ips: 0, max_per_ip: 0 };
+    $("today-title").textContent = "Сегодня, " + dayName(todayStr);
+    $("tiles").innerHTML =
+      tile(t.games_user, "партий прочитано пользователями") +
+      tile(t.ips, "разных адресов (людей)") +
+      tile(t.max_per_ip + " из " + (d.games_per_ip_today || "∞"), "максимум у одного адреса / лимит") +
+      tile(eur(t.cost_user), "потрачено на пользователей");
+    $("today-note").textContent = "Тест-режим сегодня: " + t.games_admin + " " + plural(t.games_admin, "партия", "партии", "партий") +
+      ", " + eur(t.cost_admin) + ". Всего по счётчику бюджета: " + eur(d.spent_today_eur) + " из " + eur(d.daily_budget_eur) + ".";
+
+    var body = $("days");
+    body.innerHTML = "";
+    days.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.className = "day";
+      tr.innerHTML = "<td>" + dayName(r.date) + "</td><td>" + r.games_user + "</td><td>" + (r.ips || "–") + "</td><td>" +
+        (r.max_per_ip || "–") + "</td><td>" + eur(r.cost_user) + "</td><td>" + eur(r.cost_admin) + "</td>";
+      var det = document.createElement("tr");
+      det.className = "detail";
+      det.hidden = true;
+      det.innerHTML = '<td colspan="6">' + detail(r) + "</td>";
+      tr.onclick = function () { det.hidden = !det.hidden; tr.classList.toggle("open", !det.hidden); };
+      body.appendChild(tr);
+      body.appendChild(det);
+    });
+    if (!days.length) body.innerHTML = '<tr><td colspan="6" style="text-align:left">Пока нет данных.</td></tr>';
+
+    var g = 0, c = 0, n = 0;
+    days.forEach(function (r) { if (r.games_user) { g += r.games_user; c += r.cost_user; n += 1; } });
+    $("avg").textContent = n ? "За " + n + " " + plural(n, "день", "дня", "дней") + " с пользователями: в среднем " +
+      (g / n).toFixed(1).replace(".", ",") + " партий и " + eur(c / n) + " в день, " + eur(c / g) + " за партию." : "";
+  }
+
+  function load() {
+    var token = get("admin_token");
+    if (!token) { $("login").hidden = false; $("content").hidden = true; $("reload").hidden = true; return; }
+    $("status").textContent = "Загружаю…";
+    fetch(API + "/api/stats?token=" + encodeURIComponent(token), { cache: "no-store" }).then(function (r) {
+      if (r.status === 403) { throw new Error("key"); }
+      if (!r.ok) { throw new Error("http " + r.status); }
+      return r.json();
+    }).then(function (d) {
+      $("login").hidden = true; $("content").hidden = false; $("reload").hidden = false;
+      $("status").textContent = "Обновлено в " + new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) + ".";
+      render(d);
+    }).catch(function (e) {
+      $("status").textContent = "";
+      if (e.message === "key") {
+        try { localStorage.removeItem("admin_token"); } catch (x) { /* ignore */ }
+        $("login").hidden = false; $("content").hidden = true; $("reload").hidden = true;
+        $("login-err").hidden = false; $("login-err").textContent = "Ключ не подошёл.";
+      } else {
+        $("status").innerHTML = '<span class="err">Не удалось загрузить статистику (' + esc(e.message) + "). Попробуйте ещё раз.</span>";
+        $("reload").hidden = false;
+      }
+    });
+  }
+
+  $("enter").onclick = function () { var v = $("token").value.trim(); if (v) { set("admin_token", v); $("token").value = ""; load(); } };
+  $("token").onkeydown = function (e) { if (e.key === "Enter") $("enter").onclick(); };
+  $("reload").onclick = load;
+  $("logout").onclick = function (e) {
+    e.preventDefault();
+    try { localStorage.removeItem("admin_token"); } catch (x) { /* ignore */ }
+    load();
+  };
+  load();
+})();
+</script>
+</body>
+</html>

@@ -68,7 +68,7 @@
 
 ## Разработка
 
-Автотесты запускаются на GitHub при каждом push и pull request (`.github/workflows/tests.yml`).
+Автотесты запускаются на GitHub при каждом pull request и каждом изменении main (`.github/workflows/tests.yml`).
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest httpx uvicorn

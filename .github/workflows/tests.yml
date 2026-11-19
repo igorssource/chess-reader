@@ -1,7 +1,8 @@
-# Runs the automatic tests on every push and pull request (no model, no API key needed).
+# Runs the automatic tests on every pull request and on every change of main (no model, no API key needed).
 name: tests
 on:
   push:
+    branches: [main]
   pull_request:
 jobs:
   test:

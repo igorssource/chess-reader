@@ -148,3 +148,44 @@ def test_security_guards():
     assert client.get("/api/stats").status_code == 403
     # absurdly long games are refused by the model-free routes
     assert client.post("/api/pgn", json={"header": {}, "moves": [{"san": "e4"}] * 1001}).status_code == 400
+
+
+def test_result_can_be_picked_up_later():
+    job = "abcdefghijklmnop1234"
+    assert client.get(f"/api/result/{job}").status_code == 404
+    r = client.post("/api/process", files={"files": ("a.jpg", b"\xff\xd8fake", "image/jpeg")}, data={"job": job})
+    assert r.status_code == 200
+    again = client.get(f"/api/result/{job}").json()
+    assert again["status"] == 200 and again["body"]["pgn"] == r.json()["pgn"]
+    # errors are kept too, so the waiting page stops waiting
+    bad = "zzzzzzzzzzzzzzzz9999"
+    client.post("/api/process", files={"files": ("a.txt", b"hello", "image/jpeg")}, data={"job": bad})
+    e = client.get(f"/api/result/{bad}").json()
+    assert e["status"] == 400 and e["body"]["error"] == "not_image"
+    assert client.get("/api/result/short").status_code == 400
+
+
+def test_cleanup_deletes_only_old_photos(monkeypatch):
+    import datetime as dt
+    import json
+    from server import photos
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_store1_secret")
+    calls = []
+
+    def fake(token, store_id, path, data=None, method="GET"):
+        calls.append((path, data))
+        if path.startswith("/?"):
+            return {"blobs": [{"url": "u-old", "uploadedAt": "2026-07-01T10:00:00.000Z"},
+                              {"url": "u-new", "uploadedAt": "2026-11-01T10:00:00.000Z"}], "hasMore": False}
+        return {}
+    monkeypatch.setattr(photos, "_blob_request", fake)
+    now = dt.datetime(2026, 11, 19, tzinfo=dt.timezone.utc)
+    out = photos.delete_old_photos(now=now)
+    assert out["checked"] == 2 and out["deleted"] == 1
+    assert calls[-1][0] == "/delete" and json.loads(calls[-1][1]) == {"urls": ["u-old"]}
+    # by hand: once, then throttled
+    assert "skipped" not in client.get("/api/cleanup").json()
+    assert "skipped" in client.get("/api/cleanup").json()
+    monkeypatch.setenv("CRON_SECRET", "c")
+    assert client.get("/api/cleanup").status_code == 403
+    assert client.get("/api/cleanup", headers={"authorization": "Bearer c"}).json()["checked"] == 2

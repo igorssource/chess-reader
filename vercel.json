@@ -2,5 +2,6 @@
   "functions": {
     "api/index.py": { "maxDuration": 300, "includeFiles": "{core,server}/**" }
   },
-  "rewrites": [{ "source": "/api/:path*", "destination": "/api/index?__path=:path*" }]
+  "rewrites": [{ "source": "/api/:path*", "destination": "/api/index?__path=:path*" }],
+  "crons": [{ "path": "/api/cleanup", "schedule": "17 3 * * *" }]
 }

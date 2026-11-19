@@ -3,12 +3,15 @@
 POST /api/process   photo(s) of one game -> moves with marks + PGN
 POST /api/pgn       header + moves -> PGN (after the user edits; no model call)
 POST /api/redecode  a person fixed one move -> rest of the game decoded again (no model call)
+GET  /api/result/<job>  the answer of /api/process again (phone slept or lost the connection)
+GET  /api/cleanup   deletes photos older than 90 days (daily Vercel cron)
 GET  /api/health    settings visible to the page (no secrets)
 GET  /api/stats     usage statistics (needs ADMIN_TOKEN)
 """
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import time
 from dataclasses import replace
@@ -36,7 +39,8 @@ from chessreader.sheet import Header
 
 from .kv import get_kv
 from .limits import Budget, DayStats, IpAttempts, IpLimit, client_ip, day_history, ip_tag, log_game, stats
-from .photos import new_game_id, store_photo
+from . import results
+from .photos import delete_old_photos, new_game_id, store_photo
 from .references import REFERENCES, compare
 
 MAX_IMAGES = 2              # the sheet + a continuation page or the opponent's sheet
@@ -98,7 +102,53 @@ def health():
 
 @app.post("/api/process")
 async def process(request: Request, files: list[UploadFile] = File(...), language: str = Form(None),
-                  admin: str = Form(None), model: str = Form(None), ref: str = Form(None)):
+                  admin: str = Form(None), model: str = Form(None), ref: str = Form(None),
+                  job: str = Form(None)):
+    # With a job id the answer is also kept for a day (GET /api/result/<job>): a phone that
+    # fell asleep or lost the connection meanwhile still gets the game it already paid for.
+    job = results.valid_job(job)
+    if not job:
+        return await _process(request, files, language, admin, model, ref)
+    kv = get_kv()
+    results.mark_running(kv, job)
+    try:
+        out = await _process(request, files, language, admin, model, ref)
+    except Exception:
+        results.save(kv, job, 500, {"error": "server_error", "message": "internal error"})
+        raise
+    if isinstance(out, JSONResponse):
+        results.save(kv, job, out.status_code, json.loads(out.body))
+    else:
+        results.save(kv, job, 200, out)
+    return out
+
+
+@app.get("/api/result/{job}")
+def get_result(job: str):
+    if not results.valid_job(job):
+        return _err(400, "bad_request", "bad job id")
+    r = results.load(get_kv(), job)
+    if r is None:
+        return _err(404, "unknown_job", "no such reading (never arrived or older than a day)")
+    return r
+
+
+@app.get("/api/cleanup")
+def cleanup(request: Request):
+    """Deletes photos older than 90 days. Called once a day by the Vercel cron (vercel.json).
+    Harmless to call by hand: it runs at most every 6 hours unless the admin asks."""
+    secret = os.environ.get("CRON_SECRET")
+    auth = request.headers.get("authorization") or ""
+    by_cron = bool(secret) and hmac.compare_digest(auth.encode(), f"Bearer {secret}".encode())
+    if not (by_cron or _is_admin(request.headers.get("x-admin-token"))):
+        if secret:
+            return _err(403, "forbidden", "cron secret required")
+        if not get_kv().set_once("cleanup:recent", 6 * 3600):
+            return {"skipped": "ran less than 6 hours ago"}
+    return delete_old_photos(request.headers)
+
+
+async def _process(request: Request, files, language, admin, model, ref):
     s = Settings()
     if language in LANGUAGES:      # anything else: the default stays
         s.notation_language = language

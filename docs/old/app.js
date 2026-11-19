@@ -19,7 +19,7 @@
       add: "Weiteres Foto hinzufügen", remove: "Foto entfernen",
       second: "Tipp: Füge ein zweites Foto hinzu – das Formular des Gegners zur selben Partie oder die zweite Seite. Dann werden die Züge zuverlässiger erkannt.",
       intro: "Fotografiere ein handschriftliches Partieformular. Die App liest die Züge, prüft sie nach den Schachregeln, markiert unsichere Stellen und erstellt eine PGN-Datei.",
-      privacy: "Hinweis: Das Foto wird zur Erkennung an den KI-Anbieter Anthropic gesendet und auf unserem Server gespeichert, um die Erkennung zu verbessern. Lade nur Formulare hoch, mit deren Weitergabe du einverstanden bist.",
+      privacy: "Hinweis: Das Foto wird zur Erkennung an den KI-Anbieter Anthropic gesendet und auf unserem Server 90 Tage lang gespeichert (danach automatisch gelöscht), um die Erkennung zu verbessern. Lade nur Formulare hoch, mit deren Weitergabe du einverstanden bist.",
       camera: "Foto aufnehmen", upload: "Bild hochladen",
       tips: "Tipps: Formular flach hinlegen, gutes Licht, ganzes Formular im Bild.",
       busy: "Formular wird gelesen … das kann bis zu einer Minute dauern.",
@@ -55,7 +55,7 @@
       add: "Добавить ещё фото", remove: "Убрать фото",
       second: "Совет: добавьте второе фото — бланк соперника этой же партии или вторую страницу. Тогда ходы распознаются надёжнее.",
       intro: "Сфотографируйте рукописный бланк партии. Приложение прочитает ходы, проверит их по правилам шахмат, отметит сомнительные места и подготовит файл PGN.",
-      privacy: "Обратите внимание: фото отправляется на распознавание в Anthropic (поставщик ИИ) и сохраняется на нашем сервере для улучшения распознавания. Загружайте только бланки, которыми вы готовы поделиться.",
+      privacy: "Обратите внимание: фото отправляется на распознавание в Anthropic (поставщик ИИ) и хранится на нашем сервере 90 дней (потом удаляется автоматически) для улучшения распознавания. Загружайте только бланки, которыми вы готовы поделиться.",
       camera: "Сделать фото", upload: "Загрузить файл",
       tips: "Советы: положите бланк ровно, хорошее освещение, весь бланк в кадре.",
       busy: "Читаю бланк … это может занять до минуты.",
@@ -353,7 +353,7 @@
 
   async function renderHistory() {
     let games = [];
-    try { games = await DB.all(); } catch (e) { /* no storage */ }
+    try { games = (await DB.all()).filter((g) => !g.pending); } catch (e) { /* no storage */ }
     games.sort((a, b) => b.created - a.created);
     $("history").hidden = !games.length;
     const list = $("history-list");

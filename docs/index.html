@@ -6,8 +6,8 @@
 <title>Partieformular-Leser</title>
 <!-- Main page (since 2026-11-15): the recognised game on a chessboard.
      Bump ?v= on every change of css/js. -->
-<link rel="stylesheet" href="style.css?v=20261115c">
-<link rel="stylesheet" href="pieces.css?v=20261115c">
+<link rel="stylesheet" href="style.css?v=20261119a">
+<link rel="stylesheet" href="pieces.css?v=20261119a">
 </head>
 <body>
 <header class="top">
@@ -88,7 +88,8 @@
   <!-- Step 2: reading -->
   <section class="card" id="step-busy" hidden>
     <div id="busy-thumbs" class="busy-thumbs"></div>
-    <p class="busy"><span class="spinner"></span><span id="busy-text"></span></p>
+    <p class="busy"><span class="spinner"></span><span id="busy-text"></span><span id="busy-time" class="busy-time"></span></p>
+    <p class="hint busy-hint" data-t="busy_hint"></p>
   </section>
 
   <section class="card error" id="step-error" hidden>
@@ -156,9 +157,9 @@
   </section>
 </main>
 <footer><a href="https://www.strateg-stuttgart.com/" target="_blank" rel="noopener">STRATEG Stuttgart</a> · <span data-t="footer"></span></footer>
-<script src="config.js?v=20261115c"></script>
-<script src="openings.js?v=20261115c"></script>
-<script src="vendor/chess.js?v=20261115c"></script>
-<script src="app.js?v=20261115c"></script>
+<script src="config.js?v=20261119a"></script>
+<script src="openings.js?v=20261119a"></script>
+<script src="vendor/chess.js?v=20261119a"></script>
+<script src="app.js?v=20261119a"></script>
 </body>
 </html>

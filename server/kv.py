@@ -37,10 +37,24 @@ class MemoryKV:
     def hgetall_many(self, keys: list[str]) -> list[dict]:
         return [dict(self.data.get(k) or {}) for k in keys]
 
+    def set_json(self, key: str, value, ttl: int):
+        self.data[key] = ("json", json.dumps(value))
+
+    def get_json(self, key: str):
+        v = self.data.get(key)
+        return json.loads(v[1]) if isinstance(v, tuple) else None
+
+    def set_once(self, key: str, ttl: int) -> bool:
+        """True if the key was not there yet (then it is set)."""
+        if key in self.data:
+            return False
+        self.data[key] = ("flag", "1")
+        return True
+
     def counters(self, prefix: str) -> dict:
         """All plain counters whose key starts with the prefix: {rest of key: value}."""
         return {k[len(prefix):]: float(v) for k, v in self.data.items()
-                if k.startswith(prefix) and not isinstance(v, (dict, list))}
+                if k.startswith(prefix) and not isinstance(v, (dict, list, tuple))}
 
 
 class UpstashKV:
@@ -82,6 +96,16 @@ class UpstashKV:
             return {}
         values = self._cmd("MGET", *keys)
         return {k[len(prefix):]: float(v) for k, v in zip(keys, values) if v}
+
+    def set_json(self, key, value, ttl):
+        self._cmd("SET", key, json.dumps(value, ensure_ascii=False), "EX", ttl)
+
+    def get_json(self, key):
+        v = self._cmd("GET", key)
+        return json.loads(v) if v else None
+
+    def set_once(self, key, ttl):
+        return self._cmd("SET", key, "1", "NX", "EX", ttl) == "OK"
 
     def incr_float(self, key, amount, ttl):
         value = float(self._cmd("INCRBYFLOAT", key, f"{amount:.6f}"))

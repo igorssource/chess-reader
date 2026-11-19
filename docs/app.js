@@ -12,9 +12,12 @@
       intro: "Fotografiere ein handschriftliches Partieformular. Die App liest die Züge, prüft sie nach den Schachregeln und zeigt die Partie auf dem Brett.",
       camera: "Foto aufnehmen", upload: "Bild hochladen", send: "Foto senden", send_n: (n) => `${n} Fotos senden`, remove: "Foto entfernen",
       second: "Tipp: Ein zweites Foto (Formular des Gegners oder 2. Seite) macht die Erkennung zuverlässiger.",
-      privacy: "Das Foto wird zur Erkennung an den KI-Anbieter Anthropic gesendet und auf unserem Server gespeichert. Lade nur Formulare hoch, mit deren Weitergabe du einverstanden bist.",
+      privacy: "Das Foto wird zur Erkennung an den KI-Anbieter Anthropic gesendet und auf unserem Server 90 Tage lang gespeichert, danach automatisch gelöscht. Lade nur Formulare hoch, mit deren Weitergabe du einverstanden bist.",
       tips_title: "Tipps für ein gutes Foto", tips: "Formular flach hinlegen, gutes Licht, ganzes Formular im Bild.",
-      busy: "Formular wird gelesen … bis zu einer Minute.", busy2: "Beide Formulare werden gelesen und verglichen … 1–3 Minuten.",
+      busy: "Formular wird gelesen … meist 1–2 Minuten, schwierige Formulare bis 4.", busy2: "Beide Formulare werden gelesen und verglichen … meist 2–3 Minuten, bis 4.",
+      busy_hint: "Der Bildschirm bleibt an. Reißt die Verbindung ab, geht nichts verloren: Seite einfach wieder öffnen.",
+      busy_wait: "Verbindung unterbrochen – das Ergebnis wird vom Server geholt …",
+      e_lost: "Das Ergebnis ist nicht angekommen. Bitte das Foto noch einmal senden.",
       sheets_opp: (lang) => `Foto 2 ist das Formular des Gegners${lang === "en" ? " (englische Notation)" : ""}; beide wurden Zug für Zug verglichen.`,
       sheets_cont: "Foto 2 wurde als Fortsetzung gelesen.", photo_n: (n) => `Foto ${n}`,
       white: "Weiß", black: "Schwarz", event: "Turnier", site: "Ort", date: "Datum", round: "Runde", result: "Ergebnis", edit: "ändern",
@@ -46,9 +49,12 @@
       intro: "Сфотографируйте рукописный бланк партии. Приложение прочитает ходы, проверит их по правилам шахмат и покажет партию на доске.",
       camera: "Сделать фото", upload: "Загрузить файл", send: "Отправить фото", send_n: (n) => `Отправить ${n} фото`, remove: "Убрать фото",
       second: "Совет: второе фото (бланк соперника или вторая страница) делает распознавание надёжнее.",
-      privacy: "Фото отправляется на распознавание в Anthropic (поставщик ИИ) и сохраняется на нашем сервере. Загружайте только бланки, которыми вы готовы поделиться.",
+      privacy: "Фото отправляется на распознавание в Anthropic (поставщик ИИ) и хранится на нашем сервере 90 дней, потом удаляется автоматически. Загружайте только бланки, которыми вы готовы поделиться.",
       tips_title: "Советы для хорошего фото", tips: "Положите бланк ровно, хорошее освещение, весь бланк в кадре.",
-      busy: "Читаю бланк … до минуты.", busy2: "Читаю оба бланка и сверяю их … 1–3 минуты.",
+      busy: "Читаю бланк … обычно 1–2 минуты, трудный бланк — до 4.", busy2: "Читаю оба бланка и сверяю их … обычно 2–3 минуты, до 4.",
+      busy_hint: "Экран не погаснет. Если связь прервётся, ничего не пропадёт: просто откройте страницу снова.",
+      busy_wait: "Связь прервалась — забираю результат с сервера …",
+      e_lost: "Результат не пришёл. Отправьте фото ещё раз.",
       sheets_opp: (lang) => `Фото 2 — бланк соперника${lang === "en" ? " (английская запись)" : ""}; бланки сверены ход за ходом.`,
       sheets_cont: "Фото 2 прочитано как продолжение.", photo_n: (n) => `Фото ${n}`,
       white: "Белые", black: "Чёрные", event: "Турнир", site: "Место", date: "Дата", round: "Тур", result: "Результат", edit: "изменить",
@@ -205,16 +211,50 @@
   }
 
   // ---- Step 2: send ----
-  async function send() {
-    if (!photos.length) return;
+  // The reading takes 1-4 minutes. The screen is kept on, and every upload gets a job id:
+  // the server keeps the answer for a day, so if the phone slept or the connection broke,
+  // the page fetches the finished game later (also after reopening the page).
+  let activeJob = null, wakeLock = null, busyTimer = null;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function keepAwake(on) {
+    try {
+      if (on && !wakeLock && navigator.wakeLock && document.visibilityState === "visible") {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      } else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+    } catch (e) { wakeLock = null; }
+  }
+  function busyStart(urls, text, started) {
     const bt = $("busy-thumbs");
     bt.innerHTML = "";
-    photos.forEach((ph) => { const i = document.createElement("img"); i.src = ph.url; i.alt = ""; bt.appendChild(i); });
-    bt.classList.toggle("two", photos.length > 1);
-    $("busy-text").textContent = photos.length > 1 ? t("busy2") : t("busy");
+    urls.forEach((u) => { const i = document.createElement("img"); i.src = u; i.alt = ""; bt.appendChild(i); });
+    bt.classList.toggle("two", urls.length > 1);
+    $("busy-text").textContent = text;
+    clearInterval(busyTimer);
+    const tick = () => { const s = Math.max(0, Math.round((Date.now() - started) / 1000)); $("busy-time").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+    tick(); busyTimer = setInterval(tick, 1000);
     show("step-busy");
+    keepAwake(true);
+  }
+  function busyStop() { clearInterval(busyTimer); busyTimer = null; keepAwake(false); }
+  function clearPending() { try { localStorage.removeItem("pending"); } catch (e) { /* ignore */ } DB.del("pending").catch(() => {}); }
+  function newJob() {
+    const a = new Uint8Array(16);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function send() {
+    if (!photos.length) return;
+    const blobs = photos.map((p) => p.blob), urls = photos.map((p) => p.url);
+    const pend = { job: newJob(), started: Date.now(), n: blobs.length };
+    activeJob = pend.job;
+    localSet("pending", JSON.stringify(pend));
+    saveGame({ id: "pending", pending: true, job: pend.job, created: pend.started, photos: blobs });
+    busyStart(urls, blobs.length > 1 ? t("busy2") : t("busy"), pend.started);
     const form = new FormData();
-    photos.forEach((p, i) => form.append("files", p.blob, `sheet-${i + 1}.jpg`));
+    blobs.forEach((b, i) => form.append("files", b, `sheet-${i + 1}.jpg`));
+    form.append("job", pend.job);
     const adminToken = localGet("admin_token");
     if (adminToken) {
       form.append("admin", adminToken);
@@ -222,25 +262,95 @@
       if ($("admin-ref").value) form.append("ref", $("admin-ref").value);
     }
     let resp, data;
-    const started = Date.now();
     try { resp = await fetch(API + "/api/process", { method: "POST", body: form }); }
-    catch (e) { return fail(Date.now() - started > 200000 ? t("e_server")(504) : t("e_network")); }
-    try { data = await resp.json(); } catch (e) { return fail(resp.status === 413 ? t("e_too_large") : t("e_server")(resp.status)); }
-    if (!resp.ok) {
-      const code = data && data.error;
+    catch (e) { return waitForResult(pend, blobs, urls, false); }   // phone slept / connection broke
+    try { data = await resp.json(); } catch (e) {
+      if (resp.status >= 500) return waitForResult(pend, blobs, urls, false);   // a gateway gave up, the server may still finish
+      return answer(pend.job, resp.status, null, blobs, urls);
+    }
+    return answer(pend.job, resp.status, data, blobs, urls);
+  }
+
+  // Ask the server for the kept answer until it is there.
+  async function waitForResult(pend, blobs, urls, quiet) {
+    if (activeJob !== pend.job) return;
+    const lostAt = Date.now();
+    $("busy-text").textContent = t("busy_wait");
+    for (;;) {
+      const r = await checkResult(pend.job);
+      if (activeJob !== pend.job) return;        // answered meanwhile
+      if (r && r.status) return answer(pend.job, r.status, r.body, blobs, urls);
+      const now = Date.now();
+      const neverArrived = r === null && now - (quiet ? pend.started : lostAt) > 30000;   // server does not know the job
+      const tooLong = now - pend.started > 330000 && now - lostAt > 15000;  // the server stops after 5 minutes
+      if (neverArrived || tooLong) {
+        activeJob = null; busyStop();
+        if (r === undefined) return quiet ? show("step-upload") : fail(t("e_network"));   // offline: kept for the next visit
+        clearPending();
+        if (quiet) { show("step-upload"); return; }
+        return fail(t("e_lost"));
+      }
+      await sleep(4000);
+    }
+  }
+  // {status, body} when the server has the answer, {status: 0} while reading,
+  // null if the server has never heard of the job, undefined if there is no connection.
+  async function checkResult(job) {
+    try {
+      const x = await fetch(API + "/api/result/" + job, { cache: "no-store" });
+      if (x.status === 404) return null;
+      return x.ok ? await x.json() : undefined;
+    } catch (e) { return undefined; }
+  }
+
+  async function answer(job, status, data, blobs, urls) {
+    if (activeJob !== job) return;
+    activeJob = null;
+    busyStop();
+    clearPending();
+    if (status !== 200 || !data) {
+      if (!data) return fail(status === 413 ? t("e_too_large") : t("e_server")(status));
+      const code = data.error;
       if (code === "ip_limit") return fail(t("e_ip_limit")(data.limit || ""));
       if (code === "daily_limit") return fail(t("e_daily_limit"));
       if (code === "model_error") return fail(t("e_model_error") + (data.message || ""));
       if (code === "too_large") return fail(t("e_too_large"));
-      return fail(t("e_other") + (data && (data.message || data.detail) || resp.status));
+      return fail(t("e_other") + (data.message || data.detail || status));
     }
     currentId = String(Date.now());
     await saveGame({ id: currentId, created: Date.now(), header: data.header, plies: data.plies, pgn: data.pgn,
       skipped_cells: data.skipped_cells || [], cells: data.cells || null, language: data.language || "de", layout: data.layout || [],
-      sheets: data.sheets || [], photo: photos[0].blob, photos: photos.map((ph) => ph.blob) });
-    openResult(data, photos.map((ph) => ph.url), data.sheets || []);
+      sheets: data.sheets || [], photo: blobs[0], photos: blobs });
+    openResult(data, urls, data.sheets || []);
     showAdminResult(data.admin);
   }
+
+  // The page was closed or reloaded during a reading: pick the result up.
+  async function resumePending() {
+    let pend = null;
+    try { pend = JSON.parse(localGet("pending") || "null"); } catch (e) { /* ignore */ }
+    if (!pend || !pend.job || Date.now() - pend.started > 24 * 3600 * 1000) { if (pend) clearPending(); return; }
+    let rec = null;
+    try { rec = await DB.get("pending"); } catch (e) { /* no storage */ }
+    const blobs = rec && rec.job === pend.job && rec.photos ? rec.photos : [];
+    resultUrls.forEach((u) => URL.revokeObjectURL(u));
+    resultUrls = blobs.map((b) => URL.createObjectURL(b));
+    activeJob = pend.job;
+    busyStart(resultUrls, t("busy_wait"), pend.started);
+    waitForResult(pend, blobs, resultUrls, true);
+  }
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" || !activeJob) return;
+    keepAwake(true);
+    const job = activeJob;            // the request may hang after sleep: look whether the answer is already there
+    const r = await checkResult(job);
+    if (r && r.status && activeJob === job) {
+      let rec = null;
+      try { rec = await DB.get("pending"); } catch (e) { /* ignore */ }
+      const blobs = photos.length ? photos.map((p) => p.blob) : (rec && rec.photos) || [];
+      answer(job, r.status, r.body, blobs, photos.length ? photos.map((p) => p.url) : blobs.map((b) => URL.createObjectURL(b)));
+    }
+  });
   function fail(msg) { $("error-text").textContent = msg; show("step-error"); }
 
   function initAdmin() {
@@ -270,7 +380,7 @@
   }
   async function renderHistory() {
     let games = [];
-    try { games = await DB.all(); } catch (e) { /* no storage */ }
+    try { games = (await DB.all()).filter((g) => !g.pending); } catch (e) { /* no storage */ }
     games.sort((a, b) => b.created - a.created);
     $("history").hidden = !games.length;
     const list = $("history-list");
@@ -768,4 +878,5 @@
   initAdmin();
   applyLang();
   show("step-upload");
+  resumePending();
 })();

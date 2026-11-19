@@ -6,6 +6,7 @@ Auth, as in the official @vercel/blob client:
   * OIDC: the per-request token (header x-vercel-oidc-token / env VERCEL_OIDC_TOKEN)
     together with BLOB_STORE_ID.
 Storing is best effort: recognition never fails because of it; the error is logged.
+Photos older than KEEP_DAYS are deleted once a day (Vercel cron -> /api/cleanup).
 """
 from __future__ import annotations
 
@@ -57,6 +58,59 @@ def store_photo(data: bytes, media_type: str, game_id: str, index: int,
         return None, f"blob HTTP {e.code}: {e.read()[:200].decode(errors='replace')}"
     except Exception as e:  # network etc.
         return None, f"blob error: {type(e).__name__}"
+
+
+KEEP_DAYS = 90      # photos are deleted automatically after this many days (the page says so)
+
+
+def _blob_request(token: str, store_id: str, path: str, data: bytes | None = None, method: str = "GET"):
+    import json
+    headers = {"authorization": f"Bearer {token}", "x-api-version": API_VERSION,
+               "x-vercel-blob-store-id": store_id}
+    if data is not None:
+        headers["content-type"] = "application/json"
+    req = urllib.request.Request(API_URL.rstrip("/") + path, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def _uploaded(blob: dict) -> dt.datetime | None:
+    try:
+        t = dt.datetime.fromisoformat(str(blob.get("uploadedAt", "")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+
+
+def delete_old_photos(request_headers=None, keep_days: int = KEEP_DAYS, now: dt.datetime | None = None,
+                      max_pages: int = 20) -> dict:
+    """Deletes stored photos older than keep_days. Returns counts (or an error)."""
+    import json
+    auth = _auth(request_headers)
+    if not auth:
+        return {"error": "no blob credentials"}
+    token, store_id = auth
+    limit = (now or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(days=keep_days)
+    checked, old, cursor = 0, [], None
+    try:
+        for _ in range(max_pages):
+            q = {"prefix": "sheets/", "limit": "1000", **({"cursor": cursor} if cursor else {})}
+            page = _blob_request(token, store_id, "/?" + urllib.parse.urlencode(q))
+            for b in page.get("blobs") or []:
+                checked += 1
+                t = _uploaded(b)
+                if t and t < limit and b.get("url"):
+                    old.append(b["url"])
+            cursor = page.get("cursor")
+            if not page.get("hasMore") or not cursor:
+                break
+        for i in range(0, len(old), 100):
+            _blob_request(token, store_id, "/delete", json.dumps({"urls": old[i:i + 100]}).encode(), "POST")
+    except urllib.error.HTTPError as e:
+        return {"error": f"blob HTTP {e.code}", "checked": checked}
+    except Exception as e:  # network etc.
+        return {"error": f"blob error: {type(e).__name__}", "checked": checked}
+    return {"checked": checked, "deleted": len(old), "older_than": limit.date().isoformat()}
 
 
 def new_game_id() -> str:

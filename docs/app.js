@@ -702,9 +702,97 @@
   }
 
   // On the photo: zoom to the cell of the shown move and frame it. The cell comes from the
-  // model's rough layout of the move rows (0..1000 of the photo, only for photo 1).
+  // model's rough layout of the move rows (0..1000 of the photo, only for photo 1). The model's
+  // left/right are good, but its top/bottom can be off by many rows, so the printed lines of the
+  // table are looked up on the photo itself and the rows are counted from them.
   let photoIdx = 0;
-  function cellBox(p) {
+  let gray = null;   // the photo in shades of grey, small: { src, g, W, H }
+  const linesCache = new Map();
+  function sheetGray(img) {
+    if (gray && gray.src === img.src) return gray;
+    gray = { src: img.src, g: null };
+    try {
+      const H = Math.min(1400, img.naturalHeight), W = Math.max(1, Math.round(img.naturalWidth * H / img.naturalHeight));
+      const c = document.createElement("canvas"); c.width = W; c.height = H;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, W, H);
+      const px = ctx.getImageData(0, 0, W, H).data, g = new Uint8Array(W * H);
+      for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8;
+      Object.assign(gray, { g, W, H });
+    } catch (e) { /* no canvas: stay with the model's layout */ }
+    return gray;
+  }
+  // The y positions (0..1000) of the longest evenly spaced run of printed horizontal lines
+  // between x0 and x1 (0..1000), or null. A missing line here and there is filled in.
+  function tableLines(img, x0, x1) {
+    const key = img.src + "|" + Math.round(x0) + "|" + Math.round(x1);
+    if (linesCache.has(key)) return linesCache.get(key);
+    const s = sheetGray(img);
+    let res = null;
+    if (s.g) {
+      const { g, W, H } = s, a = Math.max(0, Math.round(x0 / 1000 * W)), n = Math.min(W, Math.round(x1 / 1000 * W)) - a;
+      if (n >= 10) res = findLines(g, W, H, a, n);
+      if (res) res = res.map((y) => y / H * 1000);
+    }
+    linesCache.set(key, res);
+    return res;
+  }
+  function findLines(g, W, H, a, n) {
+    const K = 4, T = 18, dark = new Uint8Array(H * n);
+    for (let y = K; y < H - K; y++) {
+      const r = y * W + a, up = r - K * W, dn = r + K * W, o = y * n;
+      for (let i = 0; i < n; i++) if (Math.min(g[up + i], g[dn + i]) - g[r + i] > T) dark[o + i] = 1;
+    }
+    // longest piece of a thin dark line here, as a share of the width (±2 px, as a photo is never
+    // quite straight; short gaps are where the handwriting crosses the line). Printed text and
+    // handwriting give only short pieces.
+    const f = new Float32Array(H), GAP = Math.max(4, Math.round(n / 25));
+    for (let y = 2; y < H - 2; y++) {
+      let run = 0, gap = 0, best = 0;
+      for (let i = 0; i < n; i++) {
+        if (dark[(y - 2) * n + i] | dark[(y - 1) * n + i] | dark[y * n + i] | dark[(y + 1) * n + i] | dark[(y + 2) * n + i]) { run += gap + 1; gap = 0; if (run > best) best = run; }
+        else if (run && ++gap > GAP) { run = 0; gap = 0; }
+      }
+      f[y] = best / n;
+    }
+    const P = [];   // one y per line: middle of the strongest part of each run above the threshold
+    for (let y = 0; y < H; y++) {
+      if (f[y] < 0.6) continue;
+      let e = y, m = 0;
+      while (e < H && f[e] >= 0.6) { m = Math.max(m, f[e]); e++; }
+      let s0 = -1, s1 = -1;
+      for (let k = y; k < e; k++) if (f[k] >= 0.9 * m) { if (s0 < 0) s0 = k; s1 = k; }
+      P.push((s0 + s1) / 2);
+      y = e;
+    }
+    let best = null, bestScore = 0;
+    for (let i = 0; i < P.length; i++) {
+      for (let j = i + 1; j < P.length; j++) {
+        const d0 = P[j] - P[i];
+        if (d0 < H / 120) continue;
+        if (d0 > H / 6) break;
+        const chain = [P[i], P[j]];
+        let d = d0, last = P[j], k = j, found = 2, miss = 0, filled = 0;
+        for (;;) {
+          const want = last + d;
+          let hit = -1;
+          for (let m = k + 1; m < P.length && P[m] <= want + 0.12 * d; m++)
+            if (Math.abs(P[m] - want) <= 0.12 * d && (hit < 0 || Math.abs(P[m] - want) < Math.abs(P[hit] - want))) hit = m;
+          if (hit >= 0) {
+            d = 0.8 * d + 0.2 * (P[hit] - last); last = P[hit]; k = hit; found++; miss = 0; chain.push(last);
+          } else {
+            if (miss || want > H) break;
+            miss = 1; last = want; chain.push(want); filled++;
+          }
+        }
+        if (miss) { chain.pop(); filled--; }   // a run does not end on a filled-in line
+        const score = found - 2 * filled;   // a run made of every second line is not the table
+        if (score > bestScore) { bestScore = score; best = chain; }
+      }
+    }
+    return bestScore >= 6 ? best : null;
+  }
+  function cellBox(p, img) {
     const layout = state && state.layout;
     if (!p || !layout || !layout.length) return null;
     const cell = state.cells && p.token != null ? state.cells[p.token] : null;
@@ -713,32 +801,57 @@
     const color = (cell && cell.color) || "wb"[p.ply % 2];
     for (const b of layout) {
       if (b.first_move <= number && number <= b.last_move) {
-        const rh = (b.bottom - b.top) / (b.last_move - b.first_move + 1);
-        const y = b.top + (number - b.first_move) * rh, mid = (b.left + b.right) / 2;
-        return { x0: color === "w" ? b.left : mid, x1: color === "w" ? mid : b.right, y0: y, y1: y + rh };
+        const rows = b.last_move - b.first_move + 1, r = number - b.first_move;
+        const rh = (b.bottom - b.top) / rows;
+        const mid = (b.left + b.right) / 2, x0 = color === "w" ? b.left : mid, x1 = color === "w" ? mid : b.right;
+        const box = { x0, x1, y0: b.top + r * rh, y1: b.top + (r + 1) * rh };
+        const L = img ? tableLines(img, x0 + (x1 - x0) * 0.1, x1 - (x1 - x0) * 0.1) : null;
+        if (L) {
+          const n = L.length - 1, d = (L[n] - L[0]) / n;
+          // Which run of `rows` rows is the block? The model's top/bottom say roughly where, but
+          // sometimes it measures the height in units of the width, so they come out too low by
+          // the photo's proportions. Its rectangle is read both ways and the reading that fits
+          // the lines found best wins. An edge put at the very edge of the photo is not used.
+          const at = (i) => (i < 0 ? L[0] + i * d : i > n ? L[n] + (i - n) * d : L[i]);
+          const useTop = b.top > 5, useBot = b.bottom < 995, ar = img.naturalWidth / img.naturalHeight;
+          let o = Math.max(0, n - rows), bestCost = Infinity;
+          for (const k of ar && Math.abs(ar - 1) > 0.05 ? [1, ar] : [1]) {
+            const top = b.top * k, bot = b.bottom * k;
+            for (let i = Math.min(0, n - rows); i <= Math.max(0, n - rows); i++) {
+              let c = useTop || useBot ? (useTop ? Math.abs(at(i) - top) : 0) + (useBot ? Math.abs(at(i + rows) - bot) : 0)
+                : Math.abs(at(i) + at(i + rows) - top - bot);
+              if (useTop && useBot) c += Math.abs((bot - top) - rows * d) / 2;   // the row height must fit too
+              if (c < bestCost - 1e-6) { bestCost = c; o = i; }
+            }
+          }
+          box.y0 = Math.max(0, at(o + r)); box.y1 = Math.min(1000, at(o + r + 1));
+          if (box.y1 - box.y0 < 2) return null;
+        }
+        return box;
       }
     }
     return null;
   }
   function focusPhoto() {
-    const view = $("photo-view"), mark = $("ph-mark");
+    const view = $("photo-view"), mark = $("ph-mark"), img = $("preview");
     mark.hidden = true;
     if (view.hidden || photoIdx !== 0 || cur === 0) return;
-    const p = state.plies[cur - 1], box = cellBox(p);
-    if (!box) return;
-    view.classList.add("zoom");
-    const pad = 6;   // the layout is approximate: frame a bit more than the cell
-    Object.assign(mark.style, { left: (box.x0 - pad) / 10 + "%", top: (box.y0 - pad) / 10 + "%",
-      width: (box.x1 - box.x0 + 2 * pad) / 10 + "%", height: (box.y1 - box.y0 + 2 * pad) / 10 + "%" });
-    mark.className = "ph-mark " + p.status;
-    mark.hidden = false;
-    const img = $("preview");
-    const scroll = () => {
+    const p = state.plies[cur - 1];
+    const show = () => {
+      if (view.hidden || photoIdx !== 0 || state.plies[cur - 1] !== p) return;
+      const box = cellBox(p, img);
+      if (!box) return;
+      view.classList.add("zoom");
+      const pad = 4;   // a bit more than the cell, so the line under the writing stays visible
+      Object.assign(mark.style, { left: (box.x0 - pad) / 10 + "%", top: (box.y0 - pad) / 10 + "%",
+        width: (box.x1 - box.x0 + 2 * pad) / 10 + "%", height: (box.y1 - box.y0 + 2 * pad) / 10 + "%" });
+      mark.className = "ph-mark " + p.status;
+      mark.hidden = false;
       const w = $("ph-wrap").offsetWidth, h = $("ph-wrap").offsetHeight;
       view.scrollTo({ left: (box.x0 + box.x1) / 2000 * w - view.clientWidth / 2,
         top: (box.y0 + box.y1) / 2000 * h - view.clientHeight / 2, behavior: "smooth" });
     };
-    if (img.complete && img.naturalWidth) scroll(); else img.addEventListener("load", scroll, { once: true });
+    if (img.complete && img.naturalWidth) show(); else img.addEventListener("load", show, { once: true });
   }
   $("v-board").onclick = () => setView("board");
   $("preview").onclick = () => $("photo-view").classList.toggle("zoom");   // tap the sheet: 2x bigger, tap again: back
